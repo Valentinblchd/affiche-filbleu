@@ -1,0 +1,11 @@
+services:
+  affiche-filbleu:
+    build: .
+    container_name: affiche-filbleu
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3173
+      TZ: Europe/Paris
+    ports:
+      - "3173:3173"

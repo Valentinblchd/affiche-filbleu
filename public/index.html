@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Affiche Fil Bleu</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body data-board-mode="setup" data-setup-open="true" data-theme="light">
+    <main class="shell">
+      <header id="topbar" class="topbar">
+        <div class="brand-block">
+          <p class="eyebrow">Fil Bleu Tours</p>
+          <h1>Affiche trajet</h1>
+        </div>
+
+        <div class="topbar-actions">
+          <div id="route-chip" class="route-chip" hidden></div>
+          <button
+            id="theme-toggle-button"
+            class="ghost-button compact-button theme-toggle-button"
+            type="button"
+            aria-label="Activer le mode sombre"
+            title="Activer le mode sombre"
+          >
+            Mode sombre
+          </button>
+          <button
+            id="settings-button"
+            class="icon-button"
+            type="button"
+            aria-label="Modifier le trajet"
+            title="Modifier le trajet"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M19.14 12.94a7.43 7.43 0 0 0 .05-.94 7.43 7.43 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.28 7.28 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7.28 7.28 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.43 7.43 0 0 0-.05.94 7.43 7.43 0 0 0 .05.94L2.82 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
+              />
+            </svg>
+          </button>
+          <button
+            id="update-button"
+            class="update-button compact-button"
+            type="button"
+            hidden
+          >
+            Mise a jour dispo
+          </button>
+        </div>
+      </header>
+
+      <section id="favorites-bar" class="favorites-bar" hidden aria-label="Favoris trajets"></section>
+
+      <section id="dashboard" class="dashboard" hidden>
+        <p id="board-feedback" class="board-feedback" aria-live="polite"></p>
+
+        <section id="awake-view" class="board-section" hidden>
+          <div class="board-grid">
+            <div class="results-column">
+              <div class="section-head">
+                <p class="section-kicker">Prochains trajets</p>
+                <h2>Les prochains passages utiles</h2>
+              </div>
+              <div id="results" class="results-list">
+                <article class="placeholder-card">
+                  <p>Je charge les prochains trajets Fil Bleu.</p>
+                </article>
+              </div>
+              <div class="results-actions">
+                <button
+                  id="more-results-button"
+                  class="ghost-button compact-button more-results-button"
+                  type="button"
+                  hidden
+                >
+                  Afficher plus
+                </button>
+              </div>
+            </div>
+
+            <aside class="traffic-column">
+              <div class="section-head">
+                <p class="section-kicker">Etat reseau</p>
+                <h2>Retards, interruptions, manifestations</h2>
+              </div>
+              <div id="traffic" class="traffic-panel">
+                <article class="placeholder-card">
+                  <p>Les alertes reseau utiles s'afficheront ici.</p>
+                </article>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="sleep-view" class="sleep-view" hidden>
+          <article class="sleep-card">
+            <div class="sleep-copy">
+              <p class="section-kicker">Mode veille</p>
+              <h2>Le bus dort.</h2>
+              <p id="sleep-message" class="sleep-text">
+                Hors horaire automatique, l'affiche se met en veille.
+              </p>
+              <div class="sleep-actions">
+                <button id="wake-button" type="button" class="primary-button">
+                  Reveiller l'affiche pendant 15 min
+                </button>
+              </div>
+            </div>
+
+            <div class="sleep-illustration" aria-hidden="true">
+              <svg class="sleep-bus" viewBox="0 0 520 320">
+                <rect x="90" y="120" width="280" height="108" rx="34" fill="#ffd471" />
+                <rect x="120" y="92" width="192" height="50" rx="22" fill="#ffe7a7" />
+                <rect x="130" y="132" width="70" height="42" rx="12" fill="#f8fbff" />
+                <rect x="208" y="132" width="70" height="42" rx="12" fill="#f8fbff" />
+                <rect x="286" y="132" width="58" height="42" rx="12" fill="#f8fbff" />
+                <rect x="112" y="184" width="122" height="20" rx="10" fill="#efb43d" opacity="0.52" />
+                <circle cx="158" cy="236" r="28" fill="#16304b" />
+                <circle cx="304" cy="236" r="28" fill="#16304b" />
+                <circle cx="158" cy="236" r="12" fill="#f3f7fc" />
+                <circle cx="304" cy="236" r="12" fill="#f3f7fc" />
+                <path d="M188 196c8-11 16-11 24 0" fill="none" stroke="#16304b" stroke-width="6" stroke-linecap="round" />
+                <path d="M242 196c8-11 16-11 24 0" fill="none" stroke="#16304b" stroke-width="6" stroke-linecap="round" />
+                <path d="M204 214c16 10 44 10 60 0" fill="none" stroke="#16304b" stroke-width="6" stroke-linecap="round" />
+                <path d="M390 98c18-18 34-10 26 10-8 20 16 14 16 0" fill="none" stroke="#6d88c9" stroke-width="8" stroke-linecap="round" />
+                <path d="M434 74c14-14 26-8 20 8-6 16 12 12 12 0" fill="none" stroke="#9cb0df" stroke-width="8" stroke-linecap="round" />
+              </svg>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section id="setup-shell" class="setup-shell" data-overlay="false">
+        <section class="setup-card">
+          <div class="setup-head">
+            <div>
+              <p class="eyebrow">Configuration</p>
+              <h2 id="setup-title">Choisis le trajet a afficher</h2>
+            </div>
+            <button id="close-setup-button" type="button" class="ghost-button compact-button" hidden>
+              Fermer
+            </button>
+          </div>
+
+          <p id="setup-copy" class="setup-copy">
+            Tu fais le choix une seule fois. Ensuite l'affiche se met a jour
+            toute seule entre 07:00 et 18:00, puis passe en veille.
+          </p>
+
+          <form id="planner-form" class="planner-form">
+            <div class="field-group">
+              <label for="favorite-slot">Enregistrer dans</label>
+              <select id="favorite-slot" name="favorite-slot" class="slot-select">
+                <option value="0">Favori 1</option>
+                <option value="1">Favori 2</option>
+                <option value="2">Favori 3</option>
+              </select>
+              <p class="field-hint">Chaque favori garde un trajet complet que tu peux rappeler en un clic.</p>
+            </div>
+
+            <div class="field-group">
+              <label for="from-input">Depart</label>
+              <div class="field-inline">
+                <div class="autocomplete">
+                  <input
+                    id="from-input"
+                    name="from-input"
+                    type="search"
+                    autocomplete="off"
+                    placeholder="Ex. Gare de Tours, Jean Jaures, adresse libre"
+                    required
+                  />
+                  <div id="from-suggestions" class="suggestions" hidden></div>
+                </div>
+                <button id="geolocate-button" type="button" class="ghost-button">
+                  Ma position
+                </button>
+              </div>
+              <p class="field-hint">
+                Tu peux mettre une adresse, un lieu, un arret ou cliquer sur Ma position pour verifier l'adresse detectee.
+              </p>
+            </div>
+
+            <div class="swap-slot">
+              <button id="swap-button" type="button" class="swap-button">Echanger</button>
+            </div>
+
+            <div class="field-group">
+              <label for="to-input">Arrivee</label>
+              <div class="autocomplete">
+                <input
+                  id="to-input"
+                  name="to-input"
+                  type="search"
+                  autocomplete="off"
+                  placeholder="Ex. Fac 2 Lions, Hotel de Ville, arret de tram"
+                  required
+                />
+                <div id="to-suggestions" class="suggestions" hidden></div>
+              </div>
+              <p class="field-hint">Les arrets Fil Bleu remontent bien aussi a l'arrivee.</p>
+            </div>
+
+            <div class="setup-actions">
+              <button id="submit-button" type="submit" class="primary-button">
+                Enregistrer ce trajet
+              </button>
+              <button
+                id="cancel-setup-button"
+                type="button"
+                class="ghost-button"
+                hidden
+              >
+                Annuler
+              </button>
+            </div>
+            <p id="form-feedback" class="feedback" aria-live="polite"></p>
+          </form>
+        </section>
+      </section>
+    </main>
+
+    <div id="info-bubble" class="info-bubble" hidden data-open="false">
+      <button
+        id="info-button"
+        class="info-button"
+        type="button"
+        aria-label="Informations de mise a jour"
+        aria-expanded="false"
+      >
+        i
+      </button>
+      <div id="info-panel" class="info-panel" role="status">
+        <p class="info-kicker">Mise a jour</p>
+        <strong id="info-primary">Pas encore de mise a jour</strong>
+        <p id="info-secondary">L'affiche se mettra a jour automatiquement.</p>
+      </div>
+    </div>
+
+    <div id="update-modal" class="update-modal-shell" hidden>
+      <section
+        class="update-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="update-modal-title"
+      >
+        <p class="eyebrow">Mise a jour</p>
+        <h2 id="update-modal-title">Une nouvelle version est disponible</h2>
+        <p id="update-modal-copy" class="update-modal-copy">
+          Une nouvelle version de l'affiche a ete detectee sur le serveur.
+        </p>
+        <div class="update-modal-meta">
+          <span id="update-current-version" class="summary-chip">Actuelle : -</span>
+          <span id="update-latest-version" class="summary-chip">Nouvelle : -</span>
+        </div>
+        <div class="update-modal-actions">
+          <button id="update-cancel-button" type="button" class="ghost-button">
+            Plus tard
+          </button>
+          <button id="update-confirm-button" type="button" class="primary-button">
+            Lancer la mise a jour
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div id="toast" class="toast" hidden aria-live="polite"></div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
