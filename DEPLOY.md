@@ -1,5 +1,27 @@
 # Deployment
 
+## Proxmox host one-line install
+
+Run this on the Proxmox host shell as `root`:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Valentinblchd/affiche-filbleu/main/scripts/install-proxmox-host.sh)"
+```
+
+Defaults:
+
+- CT hostname: `srv-filbleu`
+- repo: `https://github.com/Valentinblchd/affiche-filbleu.git`
+- branch: `main`
+- DHCP network on `vmbr0`
+- port: `3173`
+
+You can override values if needed:
+
+```bash
+CT_HOSTNAME=srv-filbleu CTID=317 APP_BRANCH=main bash -c "$(curl -fsSL https://raw.githubusercontent.com/Valentinblchd/affiche-filbleu/main/scripts/install-proxmox-host.sh)"
+```
+
 ## Proxmox CT direct
 
 Recommended for the in-app update flow:
