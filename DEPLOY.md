@@ -11,13 +11,13 @@ Recommended for the in-app update flow:
 Local run from a copied project:
 
 ```bash
-APP_REPO_URL=https://github.com/ton-compte/affiche-filbleu.git ./scripts/install-ct.sh
+APP_REPO_URL=https://github.com/Valentinblchd/affiche-filbleu.git ./scripts/install-ct.sh
 ```
 
 One-line install once this repository is hosted online:
 
 ```bash
-APP_REPO_URL=https://github.com/ton-compte/affiche-filbleu.git bash <(curl -fsSL https://raw.githubusercontent.com/ton-compte/affiche-filbleu/main/scripts/install-ct.sh)
+APP_REPO_URL=https://github.com/Valentinblchd/affiche-filbleu.git bash <(curl -fsSL https://raw.githubusercontent.com/Valentinblchd/affiche-filbleu/main/scripts/install-ct.sh)
 ```
 
 This mode enables:
