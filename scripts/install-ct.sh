@@ -12,6 +12,7 @@ APP_BRANCH="${APP_BRANCH:-main}"
 APP_DIR="${APP_DIR:-/opt/affiche-filbleu}"
 APP_HOST="${APP_HOST:-0.0.0.0}"
 APP_PORT="${APP_PORT:-3173}"
+CT_HOSTNAME="${CT_HOSTNAME:-}"
 SERVICE_NAME="${SERVICE_NAME:-affiche-filbleu}"
 ENV_FILE="/etc/default/$SERVICE_NAME"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
@@ -26,6 +27,11 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 apt-get install -y ca-certificates curl git gnupg
+
+if [ -n "$CT_HOSTNAME" ]; then
+  printf '%s\n' "$CT_HOSTNAME" >/etc/hostname
+  hostname "$CT_HOSTNAME" || true
+fi
 
 if ! command -v node >/dev/null 2>&1 || [ "$(node -v | sed 's/^v//' | cut -d. -f1)" -lt 20 ]; then
   install -m 0755 -d /etc/apt/keyrings
@@ -95,4 +101,12 @@ systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 
-printf 'Affiche Fil Bleu disponible sur http://%s:%s\n' "$APP_HOST" "$APP_PORT"
+display_host="$APP_HOST"
+if [ "$APP_HOST" = "0.0.0.0" ]; then
+  detected_ip="$(hostname -I 2>/dev/null | awk 'NR==1 { print $1 }')"
+  if [ -n "$detected_ip" ]; then
+    display_host="$detected_ip"
+  fi
+fi
+
+printf 'Affiche Fil Bleu disponible sur http://%s:%s\n' "$display_host" "$APP_PORT"

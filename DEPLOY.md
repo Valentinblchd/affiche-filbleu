@@ -17,7 +17,7 @@ APP_REPO_URL=https://github.com/Valentinblchd/affiche-filbleu.git ./scripts/inst
 One-line install once this repository is hosted online:
 
 ```bash
-APP_REPO_URL=https://github.com/Valentinblchd/affiche-filbleu.git bash <(curl -fsSL https://raw.githubusercontent.com/Valentinblchd/affiche-filbleu/main/scripts/install-ct.sh)
+CT_HOSTNAME=srv-filbleu APP_REPO_URL=https://github.com/Valentinblchd/affiche-filbleu.git bash <(curl -fsSL https://raw.githubusercontent.com/Valentinblchd/affiche-filbleu/main/scripts/install-ct.sh)
 ```
 
 This mode enables:
