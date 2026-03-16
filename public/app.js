@@ -85,6 +85,7 @@ const elements = {
   updateLatestVersion: document.querySelector("#update-latest-version"),
   updateModal: document.querySelector("#update-modal"),
   updateModalCopy: document.querySelector("#update-modal-copy"),
+  wallClock: document.querySelector("#wall-clock"),
   wakeButton: document.querySelector("#wake-button")
 };
 
@@ -1386,6 +1387,7 @@ function renderApp() {
   renderFavorites();
   document.body.dataset.theme = state.theme;
   document.body.dataset.updateModalOpen = state.updateModalOpen ? "true" : "false";
+  elements.wallClock.textContent = formatClock(state.currentNow);
   elements.themeToggleButton.dataset.theme = state.theme;
   elements.themeToggleButton.textContent = state.theme === "dark" ? "Mode clair" : "Mode sombre";
   elements.themeToggleButton.setAttribute(

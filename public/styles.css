@@ -94,6 +94,25 @@ body::before {
   pointer-events: none;
 }
 
+.wall-clock {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 70;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 10px 24px rgba(20, 35, 51, 0.08);
+  color: var(--text);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  backdrop-filter: blur(10px);
+}
+
 body[data-theme="dark"] {
   color-scheme: dark;
   --bg-warm: #0e1722;
@@ -130,6 +149,12 @@ body[data-theme="dark"] .route-chip {
   background: rgba(8, 15, 24, 0.78);
   border-color: rgba(132, 208, 232, 0.18);
   color: var(--primary-deep);
+}
+
+body[data-theme="dark"] .wall-clock {
+  background: rgba(8, 15, 24, 0.82);
+  border-color: rgba(132, 208, 232, 0.16);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
 }
 
 body[data-theme="dark"] .icon-button,
@@ -1254,6 +1279,13 @@ body[data-board-mode="sleep"] .sleep-copy {
   .shell {
     width: min(100% - 1rem, 100%);
     padding-top: 1rem;
+  }
+
+  .wall-clock {
+    top: 0.75rem;
+    left: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 1.05rem;
   }
 
   .topbar,
