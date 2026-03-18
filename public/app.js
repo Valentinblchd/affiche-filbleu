@@ -36,7 +36,6 @@ const state = {
   refreshTimerId: 0,
   refreshing: false,
   savedConfig: null,
-  infoOpen: false,
   lastTramAlertKey: "",
   setupMode: "favorite",
   setupView: "menu",
@@ -66,10 +65,6 @@ const elements = {
   favoritesBar: document.querySelector("#favorites-bar"),
   form: document.querySelector("#planner-form"),
   geolocateButton: document.querySelector("#geolocate-button"),
-  infoBubble: document.querySelector("#info-bubble"),
-  infoButton: document.querySelector("#info-button"),
-  infoPrimary: document.querySelector("#info-primary"),
-  infoSecondary: document.querySelector("#info-secondary"),
   moreResultsButton: document.querySelector("#more-results-button"),
   originInput: document.querySelector("#from-input"),
   originSuggestions: document.querySelector("#from-suggestions"),
@@ -179,14 +174,6 @@ function formatDateTime(date) {
   });
 }
 
-function formatInfoMoment(date) {
-  return date.toLocaleString("fr-FR", {
-    weekday: "long",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
 function formatRelativeMinutes(value) {
   if (value <= 0) {
     return "Maintenant";
@@ -244,12 +231,6 @@ function setFeedback(message, tone = "muted") {
 function setBoardFeedback(message, tone = "muted") {
   elements.boardFeedback.textContent = message;
   elements.boardFeedback.dataset.tone = tone;
-}
-
-function setInfoOpen(isOpen) {
-  state.infoOpen = isOpen;
-  elements.infoBubble.dataset.open = isOpen ? "true" : "false";
-  elements.infoButton.setAttribute("aria-expanded", String(isOpen));
 }
 
 function hideToast() {
@@ -1058,27 +1039,6 @@ function modeChipData(now) {
   };
 }
 
-function describeInfoSecondary(nextEvent) {
-  if (state.lastError) {
-    return `Derniere erreur : ${state.lastError}`;
-  }
-
-  if (!nextEvent) {
-    return "L'affiche se mettra a jour automatiquement.";
-  }
-
-  switch (nextEvent.type) {
-    case "refresh":
-      return `Prochaine actualisation vers ${formatClock(nextEvent.at)}.`;
-    case "sleep":
-      return `Veille automatique a ${formatClock(nextEvent.at)}.`;
-    case "wake":
-      return `Reveil auto ${formatInfoMoment(nextEvent.at)}.`;
-    default:
-      return "L'affiche se mettra a jour automatiquement.";
-  }
-}
-
 function renderLinePills(lines) {
   if (!Array.isArray(lines) || lines.length === 0) {
     return '<span class="summary-chip">Marche</span>';
@@ -1648,39 +1608,6 @@ function startUpdateStatusLoop() {
   }, UPDATE_STATUS_REFRESH_INTERVAL_MS);
 }
 
-function updateInfoPrimary() {
-  if (state.updateStatus?.inProgress) {
-    return "Mise a jour auto en cours";
-  }
-
-  return state.lastRefreshAt
-    ? `Derniere mise a jour : ${formatInfoMoment(state.lastRefreshAt)}`
-    : "Pas encore de mise a jour";
-}
-
-function updateInfoSecondary(nextEvent) {
-  if (state.updateStatus?.inProgress) {
-    return "Le serveur redemarre et l'affiche se rechargera automatiquement.";
-  }
-
-  if (state.updateStatus?.error) {
-    return `Maj auto indisponible : ${state.updateStatus.error}`;
-  }
-
-  if (state.updateStatus?.updateAvailable) {
-    return "Nouvelle version detectee. Installation automatique en cours.";
-  }
-
-  const scheduleInfo = describeInfoSecondary(nextEvent);
-  if (state.updateStatus?.enabled && state.updateStatus?.automatic) {
-    return scheduleInfo
-      ? `${scheduleInfo} Mises a jour auto actives.`
-      : "Mises a jour auto actives.";
-  }
-
-  return scheduleInfo;
-}
-
 function setupSubmitLabel() {
   const selectedConfig = selectedSetupFavoriteConfig();
   return state.setupMode === "search"
@@ -1751,7 +1678,6 @@ function renderApp() {
   const awake = hasConfig && isAwake(state.currentNow);
   const showSleepScreen = hasConfig && !awake;
   const showEmptyBoard = !hasConfig && !showSleepScreen;
-  const nextEvent = computeNextEvent(state.currentNow);
   const mode = showSleepScreen
     ? "sleep"
     : hasConfig
@@ -1776,7 +1702,6 @@ function renderApp() {
   elements.routeChip.hidden = !hasConfig || showSleepScreen;
   elements.dashboard.hidden = false;
   elements.boardFeedback.hidden = true;
-  elements.infoBubble.hidden = !hasConfig || showSleepScreen;
   elements.setupShell.hidden = !state.isEditing || showSleepScreen;
   elements.setupShell.dataset.overlay = hasConfig || hasFavorites ? "true" : "false";
   elements.emptyView.hidden = !showEmptyBoard;
@@ -1812,18 +1737,13 @@ function renderApp() {
   elements.cancelSetupButton.hidden = !state.isEditing;
 
   if (!hasConfig) {
-    setInfoOpen(false);
     setBoardFeedback("");
     return;
   }
-
-  elements.infoPrimary.textContent = updateInfoPrimary();
-  elements.infoSecondary.textContent = updateInfoSecondary(nextEvent);
   elements.sleepMessage.textContent =
     "Hors horaire automatique, l'affiche se met en veille entre 18:00 et 07:00.";
 
   if (showSleepScreen) {
-    setInfoOpen(false);
     return;
   }
 
@@ -2130,16 +2050,6 @@ elements.deleteFavoriteButton.addEventListener("click", () => {
   void deleteFavorite();
 });
 elements.wakeButton.addEventListener("click", wakeBoard);
-elements.infoButton.addEventListener("click", (event) => {
-  event.stopPropagation();
-  setInfoOpen(!state.infoOpen);
-});
-
-document.addEventListener("click", (event) => {
-  if (state.infoOpen && !elements.infoBubble.contains(event.target)) {
-    setInfoOpen(false);
-  }
-});
 
 document.addEventListener("pointerdown", () => {
   void unlockAlertAudio().then(() => {
@@ -2153,10 +2063,6 @@ document.addEventListener("keydown", (event) => {
   void unlockAlertAudio().then(() => {
     maybePlayTramAlert(state.currentPlan);
   });
-
-  if (event.key === "Escape" && state.infoOpen) {
-    setInfoOpen(false);
-  }
 });
 
 function registerServiceWorker() {

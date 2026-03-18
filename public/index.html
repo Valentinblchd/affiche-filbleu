@@ -66,14 +66,6 @@
               />
             </svg>
           </button>
-          <button
-            id="update-button"
-            class="update-button compact-button"
-            type="button"
-            hidden
-          >
-            Mise a jour dispo
-          </button>
         </div>
       </header>
 
@@ -281,50 +273,6 @@
         </section>
       </section>
     </main>
-
-    <div id="info-bubble" class="info-bubble" hidden data-open="false">
-      <button
-        id="info-button"
-        class="info-button"
-        type="button"
-        aria-label="Informations de mise a jour"
-        aria-expanded="false"
-      >
-        i
-      </button>
-      <div id="info-panel" class="info-panel" role="status">
-        <p class="info-kicker">Mise a jour</p>
-        <strong id="info-primary">Pas encore de mise a jour</strong>
-        <p id="info-secondary">L'affiche se mettra a jour automatiquement.</p>
-      </div>
-    </div>
-
-    <div id="update-modal" class="update-modal-shell" hidden>
-      <section
-        class="update-modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="update-modal-title"
-      >
-        <p class="eyebrow">Mise a jour</p>
-        <h2 id="update-modal-title">Une nouvelle version est disponible</h2>
-        <p id="update-modal-copy" class="update-modal-copy">
-          Une nouvelle version de l'affiche a ete detectee sur le serveur.
-        </p>
-        <div class="update-modal-meta">
-          <span id="update-current-version" class="summary-chip">Actuelle : -</span>
-          <span id="update-latest-version" class="summary-chip">Nouvelle : -</span>
-        </div>
-        <div class="update-modal-actions">
-          <button id="update-cancel-button" type="button" class="ghost-button">
-            Plus tard
-          </button>
-          <button id="update-confirm-button" type="button" class="primary-button">
-            Lancer la mise a jour
-          </button>
-        </div>
-      </section>
-    </div>
 
     <div id="toast" class="toast" hidden aria-live="polite"></div>
 
