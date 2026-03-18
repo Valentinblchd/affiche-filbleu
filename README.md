@@ -8,7 +8,7 @@ Affichage grand ecran pour suivre un trajet Fil Bleu a Tours avec :
 - perturbations, retards et manifestations
 - mode veille hors horaires
 - favoris
-- mise a jour de l'app depuis l'interface si le deploiement est fait en CT
+- mise a jour auto de l'app en CT, sans confirmation manuelle
 
 ## Repo
 
@@ -61,6 +61,13 @@ Si tu as acces au shell du CT :
 ```bash
 APP_REPO_URL=https://github.com/Valentinblchd/affiche-filbleu.git bash <(curl -fsSL https://raw.githubusercontent.com/Valentinblchd/affiche-filbleu/main/scripts/install-ct.sh)
 ```
+
+Par defaut, l'installation CT active maintenant :
+
+- `TZ=Europe/Paris` pour eviter les trajets decales d'une heure
+- la verification auto des nouvelles versions
+- l'application auto des mises a jour sans popup ni confirmation
+- le redemarrage du service apres mise a jour
 
 ## Cache actuel
 

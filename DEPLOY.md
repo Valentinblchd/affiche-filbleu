@@ -24,7 +24,7 @@ CT_HOSTNAME=srv-filbleu CTID=317 APP_BRANCH=main bash -c "$(curl -fsSL https://r
 
 ## Proxmox CT direct
 
-Recommended for the in-app update flow:
+Recommended for the automatic CT update flow:
 
 1. Create a Debian 12 CT.
 2. Give it outbound internet access.
@@ -45,8 +45,9 @@ CT_HOSTNAME=srv-filbleu APP_REPO_URL=https://github.com/Valentinblchd/affiche-fi
 This mode enables:
 
 - systemd service startup
-- update detection from the UI
-- confirm-before-update from the UI
+- timezone fixed to `Europe/Paris`
+- automatic background update checks
+- automatic update apply without confirmation
 - automatic restart after update
 
 ## Ready image

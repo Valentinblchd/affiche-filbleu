@@ -4,6 +4,8 @@ import { access, constants as fsConstants, readFile } from "node:fs/promises";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
+process.env.TZ ||= "Europe/Paris";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const publicDir = join(__dirname, "public");
@@ -13,6 +15,11 @@ const host = process.env.HOST || "127.0.0.1";
 const preferredPort = Number.parseInt(process.env.PORT || "3173", 10);
 const appDirectory = process.env.APP_DIR || __dirname;
 const selfUpdateEnabled = process.env.SELF_UPDATE_ENABLED === "1";
+const autoUpdateEnabled = selfUpdateEnabled && process.env.AUTO_UPDATE_ENABLED !== "0";
+const autoUpdateIntervalMs = Math.max(
+  60_000,
+  Number.parseInt(process.env.AUTO_UPDATE_INTERVAL_MS || "300000", 10) || 300_000
+);
 const updateCheckScriptPath = process.env.UPDATE_CHECK_SCRIPT || join(scriptsDir, "check-update.sh");
 const updateApplyScriptPath = process.env.UPDATE_APPLY_SCRIPT || join(scriptsDir, "apply-update.sh");
 
@@ -40,6 +47,8 @@ const transferWalkMaxDistanceMeters = 250;
 const transferCandidateAreaLimit = 14;
 const timetableCacheTtlMs = 6 * 60 * 60 * 1000;
 const updateStatusCacheTtlMs = 30 * 1000;
+const staleJourneyGraceMinutes = 2;
+const appTimeZone = "Europe/Paris";
 const toursCenter = {
   lat: 47.3941,
   lon: 0.6848
@@ -63,6 +72,7 @@ const updateStatusCache = {
   value: null
 };
 let updateInProgress = false;
+let autoUpdateCheckInProgress = false;
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -71,6 +81,36 @@ const mimeTypes = {
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml"
 };
+
+const parisDateTimePartsFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: appTimeZone,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23"
+});
+
+const parisClockFormatter = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: appTimeZone,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23"
+});
+
+const parisOffsetFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: appTimeZone,
+  timeZoneName: "shortOffset",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23"
+});
 
 function jsonResponse(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -100,6 +140,7 @@ async function isExecutableFile(filePath) {
 function normalizeUpdateStatusPayload(payload) {
   const enabled = Boolean(payload?.enabled);
   return {
+    automatic: autoUpdateEnabled,
     branch: String(payload?.branch || ""),
     currentVersion: String(payload?.currentVersion || ""),
     enabled,
@@ -236,30 +277,129 @@ function triggerUpdateProcess() {
   child.once("close", finalize);
 }
 
+async function checkForAutomaticUpdates() {
+  if (!autoUpdateEnabled || updateInProgress || autoUpdateCheckInProgress) {
+    return;
+  }
+
+  autoUpdateCheckInProgress = true;
+  try {
+    const status = await getUpdateStatus({ force: true });
+    if (!status.enabled || !status.updateAvailable || updateInProgress) {
+      return;
+    }
+
+    if (!(await isExecutableFile(updateApplyScriptPath))) {
+      return;
+    }
+
+    triggerUpdateProcess();
+  } finally {
+    autoUpdateCheckInProgress = false;
+  }
+}
+
+function scheduleAutomaticUpdates() {
+  if (!autoUpdateEnabled) {
+    return;
+  }
+
+  setTimeout(() => {
+    void checkForAutomaticUpdates();
+  }, 15_000);
+
+  setInterval(() => {
+    void checkForAutomaticUpdates();
+  }, autoUpdateIntervalMs);
+}
+
+function padNumber(value, size = 2) {
+  return String(value).padStart(size, "0");
+}
+
+function formatterPartsToObject(formatter, date) {
+  return formatter.formatToParts(date).reduce((result, part) => {
+    if (part.type !== "literal") {
+      result[part.type] = part.value;
+    }
+    return result;
+  }, {});
+}
+
+function parisDateTimeParts(date) {
+  const parts = formatterPartsToObject(parisDateTimePartsFormatter, date);
+  return {
+    day: Number.parseInt(parts.day || "0", 10),
+    hour: Number.parseInt(parts.hour || "0", 10),
+    minute: Number.parseInt(parts.minute || "0", 10),
+    month: Number.parseInt(parts.month || "0", 10),
+    second: Number.parseInt(parts.second || "0", 10),
+    year: Number.parseInt(parts.year || "0", 10)
+  };
+}
+
+function formatCompactDateParts(parts) {
+  return `${padNumber(parts.year, 4)}${padNumber(parts.month)}${padNumber(parts.day)}`;
+}
+
+function shiftCalendarDate(parts, days) {
+  const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days, 12, 0, 0));
+  return {
+    day: shifted.getUTCDate(),
+    month: shifted.getUTCMonth() + 1,
+    year: shifted.getUTCFullYear()
+  };
+}
+
+function timeZoneOffsetMinutesAt(utcMs) {
+  const parts = formatterPartsToObject(parisOffsetFormatter, new Date(utcMs));
+  const offsetLabel = String(parts.timeZoneName || "");
+  const match = offsetLabel.match(/(?:GMT|UTC)([+-])(\d{1,2})(?::?(\d{2}))?/i);
+  if (!match) {
+    return 0;
+  }
+
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number.parseInt(match[2] || "0", 10);
+  const minutes = Number.parseInt(match[3] || "0", 10);
+  return sign * (hours * 60 + minutes);
+}
+
+function parisWallTimeToDate({
+  day,
+  hour = 0,
+  minute = 0,
+  month,
+  second = 0,
+  year
+}) {
+  const wallTimeUtcMs = Date.UTC(year, month - 1, day, hour, minute, second);
+  let resolvedUtcMs = wallTimeUtcMs;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const offsetMinutes = timeZoneOffsetMinutesAt(resolvedUtcMs);
+    const nextUtcMs = wallTimeUtcMs - offsetMinutes * 60 * 1000;
+    if (nextUtcMs === resolvedUtcMs) {
+      break;
+    }
+    resolvedUtcMs = nextUtcMs;
+  }
+
+  return new Date(resolvedUtcMs);
+}
+
 function toLocalInputValue(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  const parts = parisDateTimeParts(date);
+  return `${padNumber(parts.year, 4)}-${padNumber(parts.month)}-${padNumber(parts.day)}T${padNumber(parts.hour)}:${padNumber(parts.minute)}`;
 }
 
 function compactDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}${month}${day}`;
+  return formatCompactDateParts(parisDateTimeParts(date));
 }
 
 function compactDateTime(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const seconds = String(date.getSeconds()).padStart(2, "0");
-  return `${year}${month}${day}T${hours}${minutes}${seconds}`;
+  const parts = parisDateTimeParts(date);
+  return `${formatCompactDateParts(parts)}T${padNumber(parts.hour)}${padNumber(parts.minute)}${padNumber(parts.second)}`;
 }
 
 function parseCompactDateTime(value) {
@@ -268,20 +408,27 @@ function parseCompactDateTime(value) {
   }
 
   const year = Number.parseInt(value.slice(0, 4), 10);
-  const month = Number.parseInt(value.slice(4, 6), 10) - 1;
+  const month = Number.parseInt(value.slice(4, 6), 10);
   const day = Number.parseInt(value.slice(6, 8), 10);
-  const hours = Number.parseInt(value.slice(9, 11), 10);
-  const minutes = Number.parseInt(value.slice(11, 13), 10);
-  const seconds = Number.parseInt(value.slice(13, 15), 10);
-  return new Date(year, month, day, hours, minutes, seconds);
+  const hour = Number.parseInt(value.slice(9, 11), 10);
+  const minute = Number.parseInt(value.slice(11, 13), 10);
+  const second = Number.parseInt(value.slice(13, 15), 10);
+  return parisWallTimeToDate({
+    day,
+    hour,
+    minute,
+    month,
+    second,
+    year
+  });
 }
 
 function serviceDayKey(date) {
-  const serviceDate = new Date(date);
-  if (serviceDate.getHours() < 4) {
-    serviceDate.setDate(serviceDate.getDate() - 1);
-  }
-  return compactDate(serviceDate);
+  const parts = parisDateTimeParts(date);
+  const serviceDate = parts.hour < 4
+    ? shiftCalendarDate(parts, -1)
+    : parts;
+  return formatCompactDateParts(serviceDate);
 }
 
 function addMinutes(date, minutes) {
@@ -290,6 +437,16 @@ function addMinutes(date, minutes) {
 
 function differenceInMinutes(later, earlier) {
   return Math.round((later.getTime() - earlier.getTime()) / 60000);
+}
+
+function optionDepartsSoonEnough(option, requestedDepartureAt, graceMinutes = staleJourneyGraceMinutes) {
+  const departureValue = option?.departureAt || option?.origin?.departureAt || "";
+  const departureMs = Date.parse(departureValue);
+  if (!Number.isFinite(departureMs)) {
+    return false;
+  }
+
+  return departureMs >= requestedDepartureAt.getTime() - graceMinutes * 60 * 1000;
 }
 
 function sameServiceDay(left, right) {
@@ -910,10 +1067,10 @@ function compactPeriodOverlapsDate(period, date) {
     return true;
   }
 
-  const dayStart = new Date(date);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
+  const dayParts = parisDateTimeParts(date);
+  const nextDayParts = shiftCalendarDate(dayParts, 1);
+  const dayStart = parisWallTimeToDate(dayParts);
+  const dayEnd = parisWallTimeToDate(nextDayParts);
   return start < dayEnd && end >= dayStart;
 }
 
@@ -2820,16 +2977,17 @@ async function buildDirectPlan({
   const normalizedOptions = pruneDominatedJourneyOptions(
     dedupeEquivalentJourneyOptions(
       dedupeNearbyTramOptions(uniqueBy(
-      [
-        ...normalizedJourneyOptions,
-        ...nearbyTramOptions,
-        ...nearbyBusTramOptions,
-        ...nearbyTramBusOptions
-      ],
-      (option) => `${option.departureAt}|${option.arrivalAt}|${optionLinesKey(option)}`
+        [
+          ...normalizedJourneyOptions,
+          ...nearbyTramOptions,
+          ...nearbyBusTramOptions,
+          ...nearbyTramBusOptions
+        ],
+        (option) => `${option.departureAt}|${option.arrivalAt}|${optionLinesKey(option)}`
       ))
     )
-  );
+  )
+    .filter((option) => optionDepartsSoonEnough(option, departureAt));
 
   const options = sortJourneyOptions(normalizedOptions).slice(0, 6);
 
@@ -3247,10 +3405,7 @@ async function buildLegOptions({
 }
 
 function formatClock(date) {
-  return date.toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  return parisClockFormatter.format(date);
 }
 
 function freshnessLabel(freshness) {
@@ -3477,7 +3632,12 @@ async function buildPlan({
     throw new Error("Aucune combinaison bus + tram n'a ete trouvee pour cet horaire.");
   }
 
-  const lineIds = options.flatMap((option) => [option.bus.lineId, option.tram.lineId]);
+  const freshOptions = options.filter((option) => optionDepartsSoonEnough(option, departureAt));
+  if (freshOptions.length === 0) {
+    throw new Error("Aucune combinaison bus + tram exploitable n'a ete trouvee pour cet horaire.");
+  }
+
+  const lineIds = freshOptions.flatMap((option) => [option.bus.lineId, option.tram.lineId]);
   const areaIds = [sourceArea.id, tramArea.id, destinationArea.id];
   const matchingDisruptions = filterDisruptions(disruptions, departureAt, lineIds, areaIds)
     .slice(0, 8)
@@ -3519,7 +3679,7 @@ async function buildPlan({
       walkDistanceMeters: origin.walkDistanceMeters,
       walkMinutes: origin.walkMinutes
     },
-    options,
+    options: freshOptions,
     traffic: {
       disruptions: matchingDisruptions,
       manifestationToday: manifestations.length > 0,
@@ -3650,6 +3810,13 @@ const server = createServer(async (request, response) => {
       if (request.method !== "POST") {
         jsonResponse(response, 405, {
           error: "Methode non autorisee."
+        });
+        return;
+      }
+
+      if (autoUpdateEnabled) {
+        jsonResponse(response, 409, {
+          error: "La mise a jour se lance automatiquement sur cette installation."
         });
         return;
       }
@@ -3799,6 +3966,7 @@ function listenOnPort(serverInstance, candidatePort) {
 async function startServer() {
   const activePort = await listenOnPort(server, preferredPort);
   console.log(`Affiche Fil Bleu disponible sur http://${host}:${activePort}`);
+  scheduleAutomaticUpdates();
 }
 
 startServer().catch((error) => {

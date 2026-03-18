@@ -11,9 +11,7 @@ const FAVORITE_SLOTS = 3;
 const INITIAL_VISIBLE_RESULTS = 2;
 const RESULTS_BATCH_SIZE = 2;
 const MAX_VISIBLE_RESULTS = 6;
-const UPDATE_NOTICE_DURATION_MS = 30_000;
-const UPDATE_POLL_INTERVAL_MS = 3_000;
-const UPDATE_POLL_TIMEOUT_MS = 120_000;
+const UPDATE_STATUS_REFRESH_INTERVAL_MS = 30_000;
 
 const state = {
   currentNow: new Date(),
@@ -36,10 +34,7 @@ const state = {
   tickTimerId: 0,
   theme: "light",
   toastTimerId: 0,
-  updateModalOpen: false,
-  updateNoticeTimerId: 0,
-  updateNoticeVisible: false,
-  updatePolling: false,
+  updateStatusTimerId: 0,
   updateStatus: null,
   visibleResultsCount: INITIAL_VISIBLE_RESULTS
 };
@@ -78,13 +73,6 @@ const elements = {
   toInput: document.querySelector("#to-input"),
   toSuggestions: document.querySelector("#to-suggestions"),
   traffic: document.querySelector("#traffic"),
-  updateButton: document.querySelector("#update-button"),
-  updateCancelButton: document.querySelector("#update-cancel-button"),
-  updateConfirmButton: document.querySelector("#update-confirm-button"),
-  updateCurrentVersion: document.querySelector("#update-current-version"),
-  updateLatestVersion: document.querySelector("#update-latest-version"),
-  updateModal: document.querySelector("#update-modal"),
-  updateModalCopy: document.querySelector("#update-modal-copy"),
   wallClock: document.querySelector("#wall-clock"),
   wakeButton: document.querySelector("#wake-button")
 };
@@ -250,38 +238,6 @@ function showToast(message, tone = "success", durationMs = 8_000) {
   state.toastTimerId = window.setTimeout(() => {
     hideToast();
   }, durationMs);
-}
-
-function wait(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-function hideUpdateNotice() {
-  window.clearTimeout(state.updateNoticeTimerId);
-  state.updateNoticeVisible = false;
-}
-
-function showUpdateNoticeTemporarily() {
-  window.clearTimeout(state.updateNoticeTimerId);
-  state.updateNoticeVisible = true;
-  state.updateNoticeTimerId = window.setTimeout(() => {
-    state.updateNoticeVisible = false;
-    renderApp();
-  }, UPDATE_NOTICE_DURATION_MS);
-}
-
-function updateButtonLabel(status) {
-  if (status?.latestVersion) {
-    return `Maj ${status.latestVersion}`;
-  }
-
-  return "Mise a jour dispo";
-}
-
-function updateVersionLabel(prefix, value) {
-  return `${prefix} : ${value || "-"}`;
 }
 
 function resetVisibleResults() {
@@ -1168,109 +1124,28 @@ async function requestUpdateStatus({ force = false } = {}) {
   return payload;
 }
 
-async function refreshUpdateStatus({ force = false, showNotice = false } = {}) {
+async function refreshUpdateStatus({ force = false } = {}) {
+  const previousStatus = state.updateStatus
+    ? { ...state.updateStatus }
+    : null;
+
   try {
     const status = await requestUpdateStatus({ force });
     state.updateStatus = status;
-
-    if (status.updateAvailable && showNotice) {
-      showUpdateNoticeTemporarily();
-    } else if (!status.updateAvailable && !state.updateModalOpen && !state.updatePolling) {
-      hideUpdateNotice();
+    if (
+      previousStatus &&
+      previousStatus.currentVersion &&
+      status.enabled &&
+      status.currentVersion &&
+      status.currentVersion !== previousStatus.currentVersion
+    ) {
+      window.location.reload();
+      return;
     }
   } catch {
     state.updateStatus = null;
-    if (!state.updateModalOpen && !state.updatePolling) {
-      hideUpdateNotice();
-    }
   } finally {
     renderApp();
-  }
-}
-
-function openUpdateModal() {
-  if (!state.updateStatus?.updateAvailable && !state.updatePolling) {
-    return;
-  }
-
-  state.updateModalOpen = true;
-  renderApp();
-}
-
-function closeUpdateModal() {
-  if (state.updatePolling) {
-    return;
-  }
-
-  state.updateModalOpen = false;
-  renderApp();
-}
-
-async function waitForUpdatedServer(previousVersion) {
-  const deadline = Date.now() + UPDATE_POLL_TIMEOUT_MS;
-
-  while (Date.now() < deadline) {
-    await wait(UPDATE_POLL_INTERVAL_MS);
-
-    try {
-      const status = await requestUpdateStatus({ force: true });
-      state.updateStatus = status;
-
-      if (
-        status.enabled &&
-        (
-          (previousVersion && status.currentVersion && status.currentVersion !== previousVersion) ||
-          (!status.updateAvailable && !status.inProgress)
-        )
-      ) {
-        window.location.reload();
-        return;
-      }
-    } catch {
-      // Le serveur peut etre en train de redemarrer, on reessaie.
-    }
-  }
-
-  state.updatePolling = false;
-  state.updateModalOpen = false;
-  renderApp();
-  showToast("La mise a jour est lancee. Recharge la page dans quelques secondes.", "error");
-}
-
-async function applyUpdate() {
-  if (!state.updateStatus?.updateAvailable || state.updatePolling) {
-    return;
-  }
-
-  state.updatePolling = true;
-  state.updateModalOpen = true;
-  renderApp();
-
-  const previousVersion = state.updateStatus.currentVersion || "";
-
-  try {
-    const response = await fetch("/api/update-apply", {
-      cache: "no-store",
-      method: "POST"
-    });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.error || "La mise a jour n'a pas pu demarrer.");
-    }
-
-    state.updateStatus = {
-      ...state.updateStatus,
-      inProgress: true
-    };
-    hideUpdateNotice();
-    renderApp();
-    showToast("Mise a jour lancee. Je recharge la page des que le serveur revient.", "success");
-    await waitForUpdatedServer(previousVersion);
-  } catch (error) {
-    state.updatePolling = false;
-    renderApp();
-    showToast(error instanceof Error ? error.message : "La mise a jour a echoue.", "error");
   }
 }
 
@@ -1381,12 +1256,51 @@ function startTickLoop() {
   }, 30_000);
 }
 
+function startUpdateStatusLoop() {
+  window.clearInterval(state.updateStatusTimerId);
+  state.updateStatusTimerId = window.setInterval(() => {
+    void refreshUpdateStatus({ force: true });
+  }, UPDATE_STATUS_REFRESH_INTERVAL_MS);
+}
+
+function updateInfoPrimary() {
+  if (state.updateStatus?.inProgress) {
+    return "Mise a jour auto en cours";
+  }
+
+  return state.lastRefreshAt
+    ? `Derniere mise a jour : ${formatInfoMoment(state.lastRefreshAt)}`
+    : "Pas encore de mise a jour";
+}
+
+function updateInfoSecondary(nextEvent) {
+  if (state.updateStatus?.inProgress) {
+    return "Le serveur redemarre et l'affiche se rechargera automatiquement.";
+  }
+
+  if (state.updateStatus?.error) {
+    return `Maj auto indisponible : ${state.updateStatus.error}`;
+  }
+
+  if (state.updateStatus?.updateAvailable) {
+    return "Nouvelle version detectee. Installation automatique en cours.";
+  }
+
+  const scheduleInfo = describeInfoSecondary(nextEvent);
+  if (state.updateStatus?.enabled && state.updateStatus?.automatic) {
+    return scheduleInfo
+      ? `${scheduleInfo} Mises a jour auto actives.`
+      : "Mises a jour auto actives.";
+  }
+
+  return scheduleInfo;
+}
+
 function renderApp() {
   state.currentNow = new Date();
   syncWakeState(state.currentNow);
   renderFavorites();
   document.body.dataset.theme = state.theme;
-  document.body.dataset.updateModalOpen = state.updateModalOpen ? "true" : "false";
   elements.wallClock.textContent = formatClock(state.currentNow);
   elements.themeToggleButton.dataset.theme = state.theme;
   elements.themeToggleButton.textContent = state.theme === "dark" ? "Mode clair" : "Mode sombre";
@@ -1402,10 +1316,6 @@ function renderApp() {
   const showSleepScreen = hasConfig && !awake;
   const nextEvent = computeNextEvent(state.currentNow);
   const mode = !hasConfig ? "setup" : awake ? "awake" : "sleep";
-  const showUpdateButton = !showSleepScreen &&
-    hasConfig &&
-    (state.updateNoticeVisible || state.updateModalOpen || state.updatePolling) &&
-    (state.updateStatus?.updateAvailable || state.updatePolling);
 
   if (showSleepScreen && state.isEditing) {
     state.isEditing = false;
@@ -1418,7 +1328,6 @@ function renderApp() {
   elements.favoritesBar.hidden = showSleepScreen || !hasFavoriteConfigs(state.favorites);
   elements.settingsButton.hidden = !hasConfig || showSleepScreen;
   elements.routeChip.hidden = !hasConfig || showSleepScreen;
-  elements.updateButton.hidden = !showUpdateButton;
   elements.dashboard.hidden = !hasConfig;
   elements.boardFeedback.hidden = true;
   elements.infoBubble.hidden = !hasConfig || showSleepScreen;
@@ -1427,29 +1336,6 @@ function renderApp() {
   elements.awakeView.hidden = !awake;
   elements.sleepView.hidden = !showSleepScreen;
   elements.wakeButton.disabled = state.refreshing;
-  elements.updateModal.hidden = !state.updateModalOpen;
-  elements.updateButton.disabled = state.updatePolling;
-  elements.updateButton.textContent = state.updatePolling
-    ? "Mise a jour..."
-    : updateButtonLabel(state.updateStatus);
-  elements.updateCurrentVersion.textContent = updateVersionLabel(
-    "Actuelle",
-    state.updateStatus?.currentVersion
-  );
-  elements.updateLatestVersion.textContent = updateVersionLabel(
-    "Nouvelle",
-    state.updateStatus?.latestVersion
-  );
-  elements.updateCancelButton.disabled = state.updatePolling;
-  elements.updateConfirmButton.disabled = state.updatePolling;
-  elements.updateConfirmButton.textContent = state.updatePolling
-    ? "Mise a jour en cours..."
-    : "Lancer la mise a jour";
-  elements.updateModalCopy.textContent = state.updatePolling
-    ? "La mise a jour est en cours. La page va se recharger des que le serveur revient."
-    : state.updateStatus?.updateAvailable
-      ? `Une nouvelle version a ete detectee${state.updateStatus.latestVersion ? ` (${state.updateStatus.latestVersion})` : ""}. Confirme pour lancer la mise a jour du serveur.`
-      : "La mise a jour automatique est disponible sur cette installation.";
 
   if (!hasConfig) {
     elements.setupTitle.textContent = "Choisis le premier trajet a afficher";
@@ -1470,10 +1356,8 @@ function renderApp() {
   elements.closeSetupButton.hidden = !state.isEditing;
   elements.cancelSetupButton.hidden = !state.isEditing;
 
-  elements.infoPrimary.textContent = state.lastRefreshAt
-    ? `Derniere mise a jour : ${formatInfoMoment(state.lastRefreshAt)}`
-    : "Pas encore de mise a jour";
-  elements.infoSecondary.textContent = describeInfoSecondary(nextEvent);
+  elements.infoPrimary.textContent = updateInfoPrimary();
+  elements.infoSecondary.textContent = updateInfoSecondary(nextEvent);
   elements.sleepMessage.textContent =
     "Hors horaire automatique, l'affiche se met en veille entre 18:00 et 07:00.";
 
@@ -1689,20 +1573,12 @@ elements.themeToggleButton.addEventListener("click", () => {
 });
 
 elements.settingsButton.addEventListener("click", () => openSetup(state.activeFavoriteIndex));
-elements.updateButton.addEventListener("click", openUpdateModal);
-elements.updateCancelButton.addEventListener("click", closeUpdateModal);
-elements.updateConfirmButton.addEventListener("click", applyUpdate);
 elements.closeSetupButton.addEventListener("click", closeSetup);
 elements.cancelSetupButton.addEventListener("click", closeSetup);
 elements.wakeButton.addEventListener("click", wakeBoard);
 elements.infoButton.addEventListener("click", (event) => {
   event.stopPropagation();
   setInfoOpen(!state.infoOpen);
-});
-elements.updateModal.addEventListener("click", (event) => {
-  if (event.target === elements.updateModal) {
-    closeUpdateModal();
-  }
 });
 
 document.addEventListener("click", (event) => {
@@ -1712,11 +1588,6 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && state.updateModalOpen) {
-    closeUpdateModal();
-    return;
-  }
-
   if (event.key === "Escape" && state.infoOpen) {
     setInfoOpen(false);
   }
@@ -1751,9 +1622,9 @@ function initialize() {
 
   renderApp();
   refreshUpdateStatus({
-    force: true,
-    showNotice: true
+    force: true
   });
+  startUpdateStatusLoop();
   startTickLoop();
 
   if (state.savedConfig) {
