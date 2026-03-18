@@ -22,6 +22,7 @@ const autoUpdateIntervalMs = Math.max(
 );
 const updateCheckScriptPath = process.env.UPDATE_CHECK_SCRIPT || join(scriptsDir, "check-update.sh");
 const updateApplyScriptPath = process.env.UPDATE_APPLY_SCRIPT || join(scriptsDir, "apply-update.sh");
+const updateApiToken = String(process.env.UPDATE_API_TOKEN || "").trim();
 
 const upstreamBaseUrl = "https://filbleu.latitude-cartagene.com";
 const itineraryParams = "departure,bus,tram,walking";
@@ -79,7 +80,8 @@ const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml"
+  ".svg": "image/svg+xml",
+  ".webmanifest": "application/manifest+json; charset=utf-8"
 };
 
 const parisDateTimePartsFormatter = new Intl.DateTimeFormat("en-CA", {
@@ -126,6 +128,29 @@ function textResponse(response, statusCode, body) {
     "Cache-Control": "no-store"
   });
   response.end(body);
+}
+
+function isLoopbackRequest(request) {
+  const remoteAddress = String(request.socket?.remoteAddress || "");
+  const forwardedFor = String(request.headers["x-forwarded-for"] || "")
+    .split(",")[0]
+    .trim();
+  const candidate = forwardedFor || remoteAddress;
+  return candidate === "127.0.0.1" || candidate === "::1" || candidate === "::ffff:127.0.0.1";
+}
+
+function hasValidUpdateToken(request) {
+  if (!updateApiToken) {
+    return false;
+  }
+
+  const bearer = String(request.headers.authorization || "");
+  const explicitToken = String(request.headers["x-update-token"] || "");
+  return bearer === `Bearer ${updateApiToken}` || explicitToken === updateApiToken;
+}
+
+function canApplyUpdateFromRequest(request) {
+  return isLoopbackRequest(request) || hasValidUpdateToken(request);
 }
 
 async function isExecutableFile(filePath) {
@@ -464,8 +489,16 @@ function stripHtml(html) {
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, "\"")
+    .replace(/&#x27;|&#39;|&#039;/gi, "'")
+    .replace(/&#x2f;|&#47;/gi, "/")
     .replace(/&#039;/gi, "'")
+    .replace(/&#(\d+);/g, (_, code) => {
+      const parsed = Number.parseInt(code, 10);
+      return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : "";
+    })
     .replace(/\s+\n/g, "\n")
     .replace(/\n\s+/g, "\n")
     .replace(/[ \t]{2,}/g, " ")
@@ -1108,6 +1141,80 @@ function buildDisruptionSummary(disruption) {
     severity: disruption.severity || "info",
     severityLabel: severityLabel(disruption.severity),
     title: disruption.title || "Perturbation reseau"
+  };
+}
+
+function disruptionClientPayload(disruption, lineMetaById = new Map()) {
+  const impactedLineMeta = uniqueBy(
+    (disruption.impactedLines || [])
+      .map((lineId) => lineMetaById.get(lineId))
+      .filter(Boolean),
+    (meta) => meta.lineId || meta.lineCode || `${meta.mode}|${meta.cat}`
+  );
+  const modeKeys = uniqueBy(
+    impactedLineMeta
+      .map((meta) => transportModeKey(meta.mode || meta.cat || meta.lineCode || ""))
+      .filter(Boolean),
+    (value) => value
+  );
+  const lineCodes = impactedLineMeta
+    .map((meta) => String(meta.lineCode || "").trim())
+    .filter(Boolean);
+  const blockingTram = disruption.severity === "blocking" && (
+    modeKeys.includes("tram") ||
+    impactedLineMeta.some((meta) => isTramRoute(meta))
+  );
+
+  return {
+    blockingTram,
+    id: disruption.id,
+    impactedModes: modeKeys,
+    isManifestation: disruption.isManifestation,
+    lineCodes,
+    message: disruption.message,
+    reason: disruption.reason,
+    severity: disruption.severity,
+    severityLabel: disruption.severityLabel,
+    title: disruption.title
+  };
+}
+
+function buildTrafficPayload({
+  areaIds,
+  departureAt,
+  disruptions,
+  lineIds,
+  lineMetaById = new Map()
+}) {
+  const matchingDisruptions = filterDisruptions(disruptions, departureAt, lineIds, areaIds)
+    .slice(0, 8)
+    .map((disruption) => disruptionClientPayload(disruption, lineMetaById));
+  const manifestations = disruptions
+    .filter((disruption) => {
+      const periods = disruption.periods.length > 0
+        ? disruption.periods
+        : [{ begin: disruption.begin, end: disruption.end }];
+      return disruption.isManifestation &&
+        periods.some((period) => compactPeriodOverlapsDate(period, departureAt));
+    })
+    .slice(0, 6)
+    .map((disruption) => ({
+      id: disruption.id,
+      message: disruption.message,
+      title: disruption.title
+    }));
+  const blockingTramDisruptions = matchingDisruptions
+    .filter((disruption) => disruption.blockingTram);
+
+  return {
+    blockingTramAlertKey: blockingTramDisruptions
+      .map((disruption) => disruption.id)
+      .sort()
+      .join("|"),
+    blockingTramDetected: blockingTramDisruptions.length > 0,
+    disruptions: matchingDisruptions,
+    manifestationToday: manifestations.length > 0,
+    manifestations
   };
 }
 
@@ -3010,33 +3117,6 @@ async function buildDirectPlan({
     (value) => value
   );
 
-  const matchingDisruptions = filterDisruptions(disruptions, departureAt, lineIds, areaIds)
-    .slice(0, 8)
-    .map((disruption) => ({
-      id: disruption.id,
-      isManifestation: disruption.isManifestation,
-      message: disruption.message,
-      reason: disruption.reason,
-      severity: disruption.severity,
-      severityLabel: disruption.severityLabel,
-      title: disruption.title
-    }));
-
-  const manifestations = disruptions
-    .filter((disruption) => {
-      const periods = disruption.periods.length > 0
-        ? disruption.periods
-        : [{ begin: disruption.begin, end: disruption.end }];
-      return disruption.isManifestation &&
-        periods.some((period) => compactPeriodOverlapsDate(period, departureAt));
-    })
-    .slice(0, 6)
-    .map((disruption) => ({
-      id: disruption.id,
-      message: disruption.message,
-      title: disruption.title
-    }));
-
   return {
     options,
     request: {
@@ -3047,11 +3127,13 @@ async function buildDirectPlan({
       to: effectiveTo,
       toLabel: effectiveToLabel
     },
-    traffic: {
-      disruptions: matchingDisruptions,
-      manifestationToday: manifestations.length > 0,
-      manifestations
-    }
+    traffic: buildTrafficPayload({
+      areaIds,
+      departureAt,
+      disruptions,
+      lineIds,
+      lineMetaById: networkData.lineMetaById
+    })
   };
 }
 
@@ -3639,33 +3721,6 @@ async function buildPlan({
 
   const lineIds = freshOptions.flatMap((option) => [option.bus.lineId, option.tram.lineId]);
   const areaIds = [sourceArea.id, tramArea.id, destinationArea.id];
-  const matchingDisruptions = filterDisruptions(disruptions, departureAt, lineIds, areaIds)
-    .slice(0, 8)
-    .map((disruption) => ({
-      id: disruption.id,
-      isManifestation: disruption.isManifestation,
-      message: disruption.message,
-      reason: disruption.reason,
-      severity: disruption.severity,
-      severityLabel: disruption.severityLabel,
-      title: disruption.title
-    }));
-
-  const manifestations = disruptions
-    .filter((disruption) => {
-      const periods = disruption.periods.length > 0
-        ? disruption.periods
-        : [{ begin: disruption.begin, end: disruption.end }];
-      return disruption.isManifestation &&
-        periods.some((period) => compactPeriodOverlapsDate(period, departureAt));
-    })
-    .slice(0, 6)
-    .map((disruption) => ({
-      id: disruption.id,
-      message: disruption.message,
-      title: disruption.title
-    }));
-
   return {
     departureAt: departureAt.toISOString(),
     departureAtLabel: formatClock(departureAt),
@@ -3680,11 +3735,13 @@ async function buildPlan({
       walkMinutes: origin.walkMinutes
     },
     options: freshOptions,
-    traffic: {
-      disruptions: matchingDisruptions,
-      manifestationToday: manifestations.length > 0,
-      manifestations
-    },
+    traffic: buildTrafficPayload({
+      areaIds,
+      departureAt,
+      disruptions,
+      lineIds,
+      lineMetaById: networkData.lineMetaById
+    }),
     tramArea: tramArea.label
   };
 }
@@ -3810,6 +3867,13 @@ const server = createServer(async (request, response) => {
       if (request.method !== "POST") {
         jsonResponse(response, 405, {
           error: "Methode non autorisee."
+        });
+        return;
+      }
+
+      if (!canApplyUpdateFromRequest(request)) {
+        jsonResponse(response, 403, {
+          error: "Cette action n'est autorisee qu'en local ou avec un jeton d'administration."
         });
         return;
       }

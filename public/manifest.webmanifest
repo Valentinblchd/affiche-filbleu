@@ -1,0 +1,19 @@
+{
+  "name": "Affiche Fil Bleu",
+  "short_name": "Fil Bleu",
+  "description": "Affichage plein ecran des prochains trajets Fil Bleu et des alertes reseau.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1520",
+  "theme_color": "#0d1520",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

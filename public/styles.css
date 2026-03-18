@@ -29,6 +29,7 @@
 html {
   scroll-behavior: smooth;
   min-height: 100%;
+  background-color: #fbf6ed;
   background:
     radial-gradient(circle at top left, rgba(234, 180, 91, 0.28), transparent 22%),
     radial-gradient(circle at 85% 5%, rgba(40, 145, 108, 0.16), transparent 18%),
@@ -244,6 +245,11 @@ body[data-theme="dark"] .traffic-head {
   background: rgba(132, 208, 232, 0.1);
 }
 
+body[data-theme="dark"] .traffic-item-tram-alert {
+  border-color: rgba(210, 87, 75, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(210, 87, 75, 0.08);
+}
+
 body[data-theme="dark"] .sleep-illustration {
   background: linear-gradient(180deg, rgba(18, 32, 47, 0.88), rgba(8, 15, 24, 0.94));
 }
@@ -323,6 +329,12 @@ body[data-theme="dark"] .info-panel {
   background: rgba(8, 14, 22, 0.96);
   border-color: rgba(132, 208, 232, 0.14);
   box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+}
+
+body[data-theme="dark"] .traffic-expand-button {
+  background: rgba(132, 208, 232, 0.08);
+  border-color: rgba(132, 208, 232, 0.16);
+  color: var(--primary-deep);
 }
 
 body[data-theme="dark"] .update-button {
@@ -926,6 +938,31 @@ body[data-theme="dark"] .update-modal-shell {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.traffic-item-tram-alert {
+  border-color: rgba(181, 61, 50, 0.18);
+}
+
+.traffic-message {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
+.traffic-expand-button {
+  justify-self: flex-start;
+  min-height: 40px;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid rgba(15, 71, 103, 0.12);
+  border-radius: 999px;
+  background: rgba(15, 71, 103, 0.06);
+  color: var(--primary);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .step-card-public {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(248, 252, 250, 0.82)),
@@ -1249,7 +1286,7 @@ body[data-board-mode="sleep"] .sleep-copy {
 .info-bubble {
   position: fixed;
   left: 1rem;
-  bottom: 1rem;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
   z-index: 80;
 }
 
@@ -1518,6 +1555,30 @@ body[data-board-mode="sleep"] .sleep-copy {
 
   .info-panel {
     width: min(300px, calc(100vw - 2rem));
+  }
+
+  .info-bubble {
+    left: 0.75rem;
+    bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .info-button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    font-size: 1rem;
+  }
+
+  .traffic-item[data-expandable="true"][data-expanded="false"] .traffic-message {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+  }
+
+  .traffic-expand-button {
+    display: inline-flex;
+    align-items: center;
   }
 
   .update-modal-actions .ghost-button,

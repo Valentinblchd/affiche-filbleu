@@ -1,6 +1,7 @@
 const STORAGE_CONFIG_KEY = "filbleu-display-config-v3";
 const STORAGE_FAVORITES_KEY = "filbleu-display-favorites-v2";
 const STORAGE_ACTIVE_FAVORITE_KEY = "filbleu-display-active-favorite-v2";
+const STORAGE_PLAN_SNAPSHOT_KEY = "filbleu-display-plan-snapshot-v1";
 const STORAGE_THEME_KEY = "filbleu-display-theme-v1";
 const STORAGE_WAKE_KEY = "filbleu-display-wake-until-v3";
 const ACTIVE_START_HOUR = 7;
@@ -12,10 +13,15 @@ const INITIAL_VISIBLE_RESULTS = 2;
 const RESULTS_BATCH_SIZE = 2;
 const MAX_VISIBLE_RESULTS = 6;
 const UPDATE_STATUS_REFRESH_INTERVAL_MS = 30_000;
+const PLAN_SNAPSHOT_MAX_AGE_MS = 20 * 60 * 1000;
+const TRAFFIC_PREVIEW_LINE_LENGTH = 240;
 
 const state = {
+  audioUnlocked: false,
   currentNow: new Date(),
   currentPlan: null,
+  currentPlanSource: null,
+  expandedTrafficIds: new Set(),
   favorites: [],
   formSelection: {
     from: null,
@@ -31,6 +37,7 @@ const state = {
   refreshing: false,
   savedConfig: null,
   infoOpen: false,
+  lastTramAlertKey: "",
   setupMode: "favorite",
   setupView: "menu",
   tickTimerId: 0,
@@ -76,6 +83,7 @@ const elements = {
   sleepMessage: document.querySelector("#sleep-message"),
   sleepView: document.querySelector("#sleep-view"),
   submitButton: document.querySelector("#submit-button"),
+  themeColorMeta: document.querySelector("#theme-color-meta"),
   themeToggleButton: document.querySelector("#theme-toggle-button"),
   topbar: document.querySelector("#topbar"),
   swapButton: document.querySelector("#swap-button"),
@@ -474,6 +482,184 @@ function parseStoredDate(value) {
 
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeTrafficCopy(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncateSentence(value, maxLength = TRAFFIC_PREVIEW_LINE_LENGTH) {
+  const normalized = normalizeTrafficCopy(value);
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  const sliced = normalized.slice(0, maxLength);
+  const lastBoundary = Math.max(
+    sliced.lastIndexOf(" "),
+    sliced.lastIndexOf("."),
+    sliced.lastIndexOf(",")
+  );
+  const preview = (lastBoundary > maxLength * 0.55 ? sliced.slice(0, lastBoundary) : sliced).trim();
+  return `${preview}...`;
+}
+
+function loadStoredPlanSnapshot(config) {
+  const expectedKey = configKey(config);
+  if (!expectedKey) {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(STORAGE_PLAN_SNAPSHOT_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    const savedAt = parseStoredDate(parsed?.savedAt);
+    if (
+      parsed?.configKey !== expectedKey ||
+      !savedAt ||
+      Date.now() - savedAt.getTime() > PLAN_SNAPSHOT_MAX_AGE_MS ||
+      !parsed?.plan?.options?.length
+    ) {
+      return null;
+    }
+
+    return parsed.plan;
+  } catch {
+    return null;
+  }
+}
+
+function persistPlanSnapshot(config, plan) {
+  const snapshotKey = configKey(config);
+  if (!snapshotKey || !plan?.options?.length) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(STORAGE_PLAN_SNAPSHOT_KEY, JSON.stringify({
+      configKey: snapshotKey,
+      plan,
+      savedAt: new Date().toISOString()
+    }));
+  } catch {
+    // Ignore local storage failures and keep the session plan in memory.
+  }
+}
+
+function optionDepartureDate(option) {
+  const rawValue = option?.origin?.departureAt || option?.departureAt || "";
+  const parsed = new Date(rawValue);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function optionLeaveInMinutes(option, now = new Date()) {
+  const departureAt = optionDepartureDate(option);
+  if (!departureAt) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round((departureAt.getTime() - now.getTime()) / 60_000));
+}
+
+let alertAudioContext = null;
+
+function ensureAlertAudioContext() {
+  if (alertAudioContext) {
+    return alertAudioContext;
+  }
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    return null;
+  }
+
+  alertAudioContext = new AudioContextClass();
+  return alertAudioContext;
+}
+
+async function unlockAlertAudio() {
+  const context = ensureAlertAudioContext();
+  if (!context) {
+    return false;
+  }
+
+  try {
+    if (context.state !== "running") {
+      await context.resume();
+    }
+    state.audioUnlocked = context.state === "running";
+    return state.audioUnlocked;
+  } catch {
+    return false;
+  }
+}
+
+function playGentleAlertTone({
+  duration = 0.38,
+  frequency = 740,
+  offset = 0,
+  volume = 0.018
+} = {}) {
+  if (!state.audioUnlocked) {
+    return;
+  }
+
+  const context = ensureAlertAudioContext();
+  if (!context) {
+    return;
+  }
+
+  const oscillator = context.createOscillator();
+  const gainNode = context.createGain();
+  const startAt = context.currentTime + offset;
+
+  oscillator.type = "sine";
+  oscillator.frequency.setValueAtTime(frequency, startAt);
+  gainNode.gain.setValueAtTime(0.0001, startAt);
+  gainNode.gain.exponentialRampToValueAtTime(volume, startAt + 0.04);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+
+  oscillator.connect(gainNode);
+  gainNode.connect(context.destination);
+  oscillator.start(startAt);
+  oscillator.stop(startAt + duration + 0.02);
+}
+
+function maybePlayTramAlert(plan, source = state.currentPlanSource) {
+  const alertKey = String(plan?.traffic?.blockingTramAlertKey || "");
+  if (source !== "live") {
+    return;
+  }
+
+  if (!alertKey) {
+    state.lastTramAlertKey = "";
+    return;
+  }
+
+  if (state.lastTramAlertKey === alertKey || !state.audioUnlocked) {
+    return;
+  }
+
+  state.lastTramAlertKey = alertKey;
+  playGentleAlertTone({
+    duration: 0.34,
+    frequency: 740,
+    offset: 0,
+    volume: 0.016
+  });
+  playGentleAlertTone({
+    duration: 0.42,
+    frequency: 988,
+    offset: 0.18,
+    volume: 0.014
+  });
+  showToast("Alerte tram detectee sur le trajet.", "error", 7000);
 }
 
 function loadLegacyConfig() {
@@ -982,6 +1168,7 @@ function displayResults(plan) {
   elements.results.innerHTML = plan.options
     .slice(0, visibleCount)
     .map((option, index) => {
+      const leaveInMinutes = optionLeaveInMinutes(option, state.currentNow);
       const extraChips = [
         `<span class="summary-chip">${escapeHtml(`Temps total ${option.durationLabel}`)}</span>`,
         `<span class="summary-chip">${escapeHtml(formatTransferCount(option.transferCount))}</span>`
@@ -995,7 +1182,7 @@ function displayResults(plan) {
 
           <div class="result-head">
             <div>
-              <div class="result-status">${escapeHtml(formatRelativeMinutes(option.leaveInMinutes))}</div>
+              <div class="result-status">${escapeHtml(formatRelativeMinutes(leaveInMinutes))}</div>
               <p class="route-caption">${escapeHtml(option.routeLabel || "")}</p>
             </div>
             <div class="result-arrival">
@@ -1039,6 +1226,36 @@ function displayResults(plan) {
   elements.moreResultsButton.hidden = visibleCount >= totalOptions || totalOptions <= INITIAL_VISIBLE_RESULTS;
 }
 
+function renderTrafficItem(item, chipLabel, chipTone = "", itemClass = "") {
+  const message = normalizeTrafficCopy(item.message);
+  const expandable = message.length > TRAFFIC_PREVIEW_LINE_LENGTH;
+  const expanded = state.expandedTrafficIds.has(item.id);
+  const classes = ["traffic-item", itemClass].filter(Boolean).join(" ");
+
+  return `
+    <article
+      class="${classes}"
+      data-expandable="${expandable ? "true" : "false"}"
+      data-expanded="${expanded ? "true" : "false"}"
+    >
+      <span class="traffic-chip ${chipTone}">${escapeHtml(chipLabel)}</span>
+      <strong>${escapeHtml(item.title)}</strong>
+      <p class="traffic-message">
+        ${escapeHtml(expanded ? message : truncateSentence(message))}
+      </p>
+      ${expandable ? `
+        <button
+          class="traffic-expand-button"
+          type="button"
+          data-traffic-toggle-id="${escapeHtml(item.id)}"
+        >
+          ${expanded ? "Voir moins" : "Voir plus"}
+        </button>
+      ` : ""}
+    </article>
+  `;
+}
+
 function displayTraffic(plan) {
   const fromLabel = escapeHtml(plan.request?.fromLabel || state.savedConfig?.from?.label || "Depart");
   const toLabel = escapeHtml(plan.request?.toLabel || state.savedConfig?.to?.label || "Arrivee");
@@ -1046,13 +1263,7 @@ function displayTraffic(plan) {
   const manifestationsMarkup = plan.traffic.manifestations.length > 0
     ? plan.traffic.manifestations
         .map((manifestation) => {
-          return `
-            <article class="traffic-item">
-              <span class="traffic-chip danger">Manifestation</span>
-              <strong>${escapeHtml(manifestation.title)}</strong>
-              <p>${escapeHtml(manifestation.message)}</p>
-            </article>
-          `;
+          return renderTrafficItem(manifestation, "Manifestation", "danger");
         })
         .join("")
     : "";
@@ -1061,13 +1272,8 @@ function displayTraffic(plan) {
     ? plan.traffic.disruptions
         .map((disruption) => {
           const chipClass = disruption.severity === "blocking" ? "danger" : "";
-          return `
-            <article class="traffic-item">
-              <span class="traffic-chip ${chipClass}">${escapeHtml(disruption.severityLabel)}</span>
-              <strong>${escapeHtml(disruption.title)}</strong>
-              <p>${escapeHtml(disruption.message)}</p>
-            </article>
-          `;
+          const itemClass = disruption.blockingTram ? "traffic-item-tram-alert" : "";
+          return renderTrafficItem(disruption, disruption.severityLabel, chipClass, itemClass);
         })
         .join("")
     : `
@@ -1218,6 +1424,12 @@ function applyDisplayedConfig(config, favoriteIndex = null) {
   populateFormFromConfig(state.savedConfig);
 }
 
+function clearCurrentPlan() {
+  state.currentPlan = null;
+  state.currentPlanSource = null;
+  state.expandedTrafficIds.clear();
+}
+
 async function activateFavorite(index) {
   const favoriteIndex = normalizeFavoriteIndex(index);
   const config = state.favorites[favoriteIndex];
@@ -1237,7 +1449,7 @@ async function activateFavorite(index) {
   state.editingFavoriteIndex = favoriteIndex;
   applyDisplayedConfig(config, favoriteIndex);
   state.isEditing = false;
-  state.currentPlan = null;
+  clearCurrentPlan();
   resetVisibleResults();
   state.lastError = "";
   renderFavorites();
@@ -1352,17 +1564,31 @@ async function refreshPlan() {
     }
 
     syncResolvedConfigFromPlan(payload, requestConfig);
+    state.expandedTrafficIds.clear();
     state.currentPlan = payload;
+    state.currentPlanSource = "live";
     resetVisibleResults();
     state.lastRefreshAt = parseStoredDate(payload.request?.departureAt) || requestedAt;
+    persistPlanSnapshot(state.savedConfig, payload);
+    maybePlayTramAlert(payload);
     displayResults(payload);
     displayTraffic(payload);
   } catch (error) {
     state.lastError = error instanceof Error ? error.message : "Erreur inconnue.";
 
     if (!state.currentPlan) {
-      showResultsPlaceholder(state.lastError);
-      showTrafficPlaceholder("Aucune alerte reseau exploitable pour cette recherche.");
+      const fallbackPlan = loadStoredPlanSnapshot(state.savedConfig);
+      if (fallbackPlan) {
+        state.currentPlan = fallbackPlan;
+        state.currentPlanSource = "cached";
+        state.lastRefreshAt =
+          parseStoredDate(fallbackPlan.request?.departureAt || fallbackPlan.departureAt) || state.lastRefreshAt;
+        displayResults(fallbackPlan);
+        displayTraffic(fallbackPlan);
+      } else {
+        showResultsPlaceholder(state.lastError);
+        showTrafficPlaceholder("Aucune alerte reseau exploitable pour cette recherche.");
+      }
     }
   } finally {
     state.refreshing = false;
@@ -1500,6 +1726,12 @@ function renderApp() {
   syncWakeState(state.currentNow);
   renderFavorites();
   document.body.dataset.theme = state.theme;
+  if (elements.themeColorMeta) {
+    elements.themeColorMeta.setAttribute(
+      "content",
+      state.theme === "dark" ? "#0d1520" : "#fbf6ed"
+    );
+  }
   elements.wallClock.textContent = formatClock(state.currentNow);
   elements.themeToggleButton.dataset.theme = state.theme;
   elements.themeToggleButton.textContent = state.theme === "dark" ? "Mode clair" : "Mode sombre";
@@ -1598,6 +1830,12 @@ function renderApp() {
   if (state.refreshing) {
     setBoardFeedback("Actualisation en cours...");
     elements.boardFeedback.hidden = false;
+  } else if (state.currentPlanSource === "cached") {
+    const message = state.lastError
+      ? `Derniere erreur: ${state.lastError}. Affichage des derniers trajets connus.`
+      : "Affichage des derniers trajets connus.";
+    setBoardFeedback(message, state.lastError ? "error" : "muted");
+    elements.boardFeedback.hidden = false;
   } else if (state.lastError) {
     setBoardFeedback(`Derniere erreur: ${state.lastError}`, "error");
     elements.boardFeedback.hidden = false;
@@ -1661,7 +1899,7 @@ async function saveRoute(event) {
     }
 
     state.isEditing = false;
-    state.currentPlan = null;
+    clearCurrentPlan();
     resetVisibleResults();
     state.lastError = "";
     setFeedback("");
@@ -1688,7 +1926,7 @@ async function wakeBoard() {
   }
 
   armManualWake();
-  state.currentPlan = null;
+  clearCurrentPlan();
   resetVisibleResults();
   state.lastError = "";
   renderApp();
@@ -1722,7 +1960,7 @@ async function deleteFavorite() {
 
   if (state.activeFavoriteIndex === favoriteIndex) {
     const nextEntry = favoriteEntries(state.favorites)[0] || null;
-    state.currentPlan = null;
+    clearCurrentPlan();
     resetVisibleResults();
     state.lastError = "";
 
@@ -1849,6 +2087,21 @@ elements.favoriteManagerList.addEventListener("click", (event) => {
   openFavoriteForm(button.dataset.manageFavoriteIndex);
 });
 
+elements.traffic.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-traffic-toggle-id]");
+  if (!button || !state.currentPlan) {
+    return;
+  }
+
+  const trafficId = button.dataset.trafficToggleId;
+  if (state.expandedTrafficIds.has(trafficId)) {
+    state.expandedTrafficIds.delete(trafficId);
+  } else {
+    state.expandedTrafficIds.add(trafficId);
+  }
+  displayTraffic(state.currentPlan);
+});
+
 elements.moreResultsButton.addEventListener("click", () => {
   if (!state.currentPlan?.options?.length) {
     return;
@@ -1888,11 +2141,35 @@ document.addEventListener("click", (event) => {
   }
 });
 
+document.addEventListener("pointerdown", () => {
+  void unlockAlertAudio().then(() => {
+    maybePlayTramAlert(state.currentPlan);
+  });
+}, {
+  passive: true
+});
+
 document.addEventListener("keydown", (event) => {
+  void unlockAlertAudio().then(() => {
+    maybePlayTramAlert(state.currentPlan);
+  });
+
   if (event.key === "Escape" && state.infoOpen) {
     setInfoOpen(false);
   }
 });
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Keep the app usable even if service worker registration fails.
+    });
+  });
+}
 
 function initialize() {
   state.theme = loadStoredTheme() || preferredTheme();
@@ -1928,6 +2205,13 @@ function initialize() {
 
   if (state.savedConfig) {
     populateFormFromConfig(state.savedConfig);
+    const cachedPlan = loadStoredPlanSnapshot(state.savedConfig);
+    if (cachedPlan) {
+      state.currentPlan = cachedPlan;
+      state.currentPlanSource = "cached";
+      state.lastRefreshAt =
+        parseStoredDate(cachedPlan.request?.departureAt || cachedPlan.departureAt) || null;
+    }
   } else {
     clearFormSelections();
   }
@@ -1938,6 +2222,7 @@ function initialize() {
   });
   startUpdateStatusLoop();
   startTickLoop();
+  registerServiceWorker();
 
   if (state.savedConfig) {
     if (isAwake(new Date())) {
