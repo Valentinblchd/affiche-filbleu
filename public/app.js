@@ -544,9 +544,14 @@ function persistFavorites(favorites) {
 
 function loadActiveFavoriteIndex() {
   try {
-    return normalizeFavoriteIndex(window.localStorage.getItem(STORAGE_ACTIVE_FAVORITE_KEY));
+    const raw = window.localStorage.getItem(STORAGE_ACTIVE_FAVORITE_KEY);
+    if (raw === null || raw === "") {
+      return null;
+    }
+
+    return normalizeFavoriteIndex(raw);
   } catch {
-    return 0;
+    return null;
   }
 }
 
@@ -1500,6 +1505,10 @@ function renderApp() {
 
   const hasConfig = Boolean(state.savedConfig);
   const hasFavorites = hasFavoriteConfigs(state.favorites);
+  const displayingFavorite =
+    Number.isInteger(state.activeFavoriteIndex) &&
+    Boolean(state.favorites[state.activeFavoriteIndex]);
+  const displayingSearch = hasConfig && !displayingFavorite;
   const awake = hasConfig && isAwake(state.currentNow);
   const showSleepScreen = hasConfig && !awake;
   const showEmptyBoard = !hasConfig && !showSleepScreen;
@@ -1519,7 +1528,11 @@ function renderApp() {
 
   elements.topbar.hidden = showSleepScreen;
   elements.searchButton.hidden = showSleepScreen;
-  elements.favoritesBar.hidden = showSleepScreen || !hasFavorites;
+  elements.favoritesBar.hidden =
+    showSleepScreen ||
+    !hasFavorites ||
+    displayingSearch ||
+    (state.isEditing && state.setupMode === "search");
   elements.settingsButton.hidden = showSleepScreen;
   elements.routeChip.hidden = !hasConfig || showSleepScreen;
   elements.dashboard.hidden = false;
@@ -1545,7 +1558,9 @@ function renderApp() {
     !selectedSetupFavoriteConfig();
 
   if (hasConfig) {
-    elements.routeChip.textContent = routeSummary(state.savedConfig);
+    elements.routeChip.textContent = displayingSearch
+      ? `Recherche rapide · ${routeSummary(state.savedConfig)}`
+      : routeSummary(state.savedConfig);
   }
 
   if (state.setupMode === "favorite" && state.setupView === "menu") {
@@ -1876,8 +1891,13 @@ function initialize() {
   state.theme = loadStoredTheme() || preferredTheme();
   state.favorites = loadStoredFavorites();
   persistFavorites(state.favorites);
+  const persistedConfig = loadLegacyConfig();
   const storedActiveIndex = loadActiveFavoriteIndex();
-  if (hasFavoriteConfigs(state.favorites)) {
+  if (Number.isInteger(storedActiveIndex) && state.favorites[storedActiveIndex]) {
+    state.activeFavoriteIndex = storedActiveIndex;
+  } else if (persistedConfig) {
+    state.activeFavoriteIndex = null;
+  } else if (hasFavoriteConfigs(state.favorites)) {
     state.activeFavoriteIndex = state.favorites[storedActiveIndex]
       ? storedActiveIndex
       : (state.favorites.findIndex((config) => Boolean(config)) || 0);
@@ -1892,7 +1912,7 @@ function initialize() {
         from: copySelection(state.favorites[state.activeFavoriteIndex].from),
         to: copySelection(state.favorites[state.activeFavoriteIndex].to)
       }
-    : loadLegacyConfig();
+    : persistedConfig;
   state.manualWakeUntil = loadStoredWakeUntil();
   syncWakeState(new Date());
   state.isEditing = false;
