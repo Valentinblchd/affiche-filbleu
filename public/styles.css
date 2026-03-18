@@ -28,11 +28,16 @@
 
 html {
   scroll-behavior: smooth;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(234, 180, 91, 0.28), transparent 22%),
+    radial-gradient(circle at 85% 5%, rgba(40, 145, 108, 0.16), transparent 18%),
+    linear-gradient(180deg, #fbf6ed 0%, var(--bg-warm) 56%, #e8f0e9 100%);
 }
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
   color: var(--text);
   font-family: "IBM Plex Sans", sans-serif;
   background:
@@ -340,7 +345,7 @@ body[data-theme="dark"] .update-modal-shell {
   position: relative;
   width: min(1240px, calc(100% - 2rem));
   margin: 0 auto;
-  padding: 1.5rem 0 4rem;
+  padding: calc(1.5rem + env(safe-area-inset-top)) 0 calc(4rem + env(safe-area-inset-bottom));
 }
 
 .eyebrow,
@@ -1412,14 +1417,12 @@ body[data-board-mode="sleep"] .sleep-copy {
 @media (max-width: 820px) {
   .shell {
     width: 100%;
-    padding-top: 4.5rem;
+    padding-top: calc(1rem + env(safe-area-inset-top));
+    padding-bottom: calc(3rem + env(safe-area-inset-bottom));
   }
 
   .wall-clock {
-    top: 0.75rem;
-    left: 0.75rem;
-    padding: 0.5rem 0.75rem;
-    font-size: 1.05rem;
+    display: none;
   }
 
   .topbar,
@@ -1489,7 +1492,7 @@ body[data-board-mode="sleep"] .sleep-copy {
 
   .setup-shell[data-overlay="true"] {
     align-items: end;
-    padding: 0;
+    padding: env(safe-area-inset-top) 0 0;
   }
 
   .setup-shell[data-overlay="true"] .setup-card {
@@ -1504,8 +1507,7 @@ body[data-board-mode="sleep"] .sleep-copy {
   }
 
   body[data-setup-open="true"] .wall-clock {
-    opacity: 0;
-    pointer-events: none;
+    display: none;
   }
 
   .swap-button,
@@ -1527,7 +1529,10 @@ body[data-board-mode="sleep"] .sleep-copy {
 @media (max-width: 560px) {
   .shell {
     width: 100%;
-    padding: 4.25rem 0 2.5rem;
+    padding:
+      calc(0.75rem + env(safe-area-inset-top))
+      0
+      calc(2.5rem + env(safe-area-inset-bottom));
   }
 
   .topbar,

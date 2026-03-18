@@ -1227,6 +1227,13 @@ async function activateFavorite(index) {
     return;
   }
 
+  if (
+    favoriteIndex === state.activeFavoriteIndex &&
+    configKey(config) === configKey(state.savedConfig)
+  ) {
+    return;
+  }
+
   state.editingFavoriteIndex = favoriteIndex;
   applyDisplayedConfig(config, favoriteIndex);
   state.isEditing = false;
