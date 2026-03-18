@@ -21,7 +21,7 @@ const state = {
     from: null,
     to: null
   },
-  activeFavoriteIndex: 0,
+  activeFavoriteIndex: null,
   editingFavoriteIndex: 0,
   isEditing: false,
   lastError: "",
@@ -31,6 +31,7 @@ const state = {
   refreshing: false,
   savedConfig: null,
   infoOpen: false,
+  setupMode: "favorite",
   tickTimerId: 0,
   theme: "light",
   toastTimerId: 0,
@@ -45,8 +46,13 @@ const elements = {
   cancelSetupButton: document.querySelector("#cancel-setup-button"),
   closeSetupButton: document.querySelector("#close-setup-button"),
   dashboard: document.querySelector("#dashboard"),
+  deleteFavoriteButton: document.querySelector("#delete-favorite-button"),
+  emptyAddFavoriteButton: document.querySelector("#empty-add-favorite-button"),
+  emptySearchButton: document.querySelector("#empty-search-button"),
+  emptyView: document.querySelector("#empty-view"),
   feedback: document.querySelector("#form-feedback"),
   favoriteSlot: document.querySelector("#favorite-slot"),
+  favoriteSlotGroup: document.querySelector("#favorite-slot-group"),
   favoritesBar: document.querySelector("#favorites-bar"),
   form: document.querySelector("#planner-form"),
   geolocateButton: document.querySelector("#geolocate-button"),
@@ -59,6 +65,7 @@ const elements = {
   originSuggestions: document.querySelector("#from-suggestions"),
   results: document.querySelector("#results"),
   routeChip: document.querySelector("#route-chip"),
+  searchButton: document.querySelector("#search-button"),
   settingsButton: document.querySelector("#settings-button"),
   setupCopy: document.querySelector("#setup-copy"),
   setupShell: document.querySelector("#setup-shell"),
@@ -124,6 +131,17 @@ function normalizeFavoriteIndex(value) {
 
 function hasFavoriteConfigs(favorites) {
   return favorites.some((config) => Boolean(config?.from?.id && config?.to?.id));
+}
+
+function favoriteEntries(favorites) {
+  return favorites.flatMap((config, index) => {
+    return config?.from?.id && config?.to?.id
+      ? [{
+          config,
+          index
+        }]
+      : [];
+  });
 }
 
 function normalizeTheme(value) {
@@ -497,12 +515,7 @@ function loadStoredFavorites() {
     // Ignore invalid local storage entries.
   }
 
-  const legacyConfig = loadLegacyConfig();
-  const slots = emptyFavorites();
-  if (legacyConfig) {
-    slots[0] = legacyConfig;
-  }
-  return slots;
+  return emptyFavorites();
 }
 
 function persistConfig(config) {
@@ -536,6 +549,11 @@ function loadActiveFavoriteIndex() {
 
 function persistActiveFavoriteIndex(index) {
   try {
+    if (!Number.isInteger(index)) {
+      window.localStorage.removeItem(STORAGE_ACTIVE_FAVORITE_KEY);
+      return;
+    }
+
     window.localStorage.setItem(
       STORAGE_ACTIVE_FAVORITE_KEY,
       String(normalizeFavoriteIndex(index))
@@ -615,11 +633,13 @@ function syncResolvedConfigFromPlan(plan, fallbackConfig) {
   }
 
   state.savedConfig = nextConfig;
-  state.favorites[state.activeFavoriteIndex] = {
-    from: copySelection(nextConfig.from),
-    to: copySelection(nextConfig.to)
-  };
-  persistFavorites(state.favorites);
+  if (Number.isInteger(state.activeFavoriteIndex) && state.favorites[state.activeFavoriteIndex]) {
+    state.favorites[state.activeFavoriteIndex] = {
+      from: copySelection(nextConfig.from),
+      to: copySelection(nextConfig.to)
+    };
+    persistFavorites(state.favorites);
+  }
   persistConfig(state.savedConfig);
   populateFormFromConfig(state.savedConfig);
   renderFavorites();
@@ -639,29 +659,47 @@ function favoriteLabel(index) {
   return `Favori ${index + 1}`;
 }
 
-function renderFavorites() {
-  const hasAny = hasFavoriteConfigs(state.favorites);
-  elements.favoritesBar.hidden = !hasAny;
+function firstAvailableFavoriteIndex() {
+  const emptyIndex = state.favorites.findIndex((config) => !config?.from?.id || !config?.to?.id);
+  if (emptyIndex >= 0) {
+    return emptyIndex;
+  }
 
-  if (!hasAny) {
+  return Number.isInteger(state.activeFavoriteIndex)
+    ? state.activeFavoriteIndex
+    : 0;
+}
+
+function favoriteConfigAt(index) {
+  const normalizedIndex = normalizeFavoriteIndex(index);
+  return state.favorites[normalizedIndex] || null;
+}
+
+function selectedSetupFavoriteConfig() {
+  return favoriteConfigAt(elements.favoriteSlot.value);
+}
+
+function renderFavorites() {
+  const entries = favoriteEntries(state.favorites);
+  elements.favoritesBar.hidden = entries.length === 0;
+
+  if (entries.length === 0) {
     elements.favoritesBar.innerHTML = "";
     return;
   }
 
-  elements.favoritesBar.innerHTML = state.favorites
-    .map((config, index) => {
+  elements.favoritesBar.innerHTML = entries
+    .map(({ config, index }) => {
       const isActive = index === state.activeFavoriteIndex;
-      const label = config ? routeSummary(config) : "Libre";
       return `
         <button
           class="favorite-chip"
           type="button"
           data-favorite-index="${index}"
           data-active="${isActive ? "true" : "false"}"
-          data-empty="${config ? "false" : "true"}"
         >
           <span class="favorite-chip-index">${favoriteLabel(index)}</span>
-          <span class="favorite-chip-route">${escapeHtml(label)}</span>
+          <span class="favorite-chip-route">${escapeHtml(routeSummary(config))}</span>
         </button>
       `;
     })
@@ -1030,9 +1068,19 @@ function clearFormSelections() {
   destinationAutocomplete.clearSelection();
 }
 
-function openSetup(targetIndex = state.activeFavoriteIndex) {
+function openSetup({
+  mode = "favorite",
+  targetIndex = mode === "favorite"
+    ? firstAvailableFavoriteIndex()
+    : Number.isInteger(state.activeFavoriteIndex)
+      ? state.activeFavoriteIndex
+      : firstAvailableFavoriteIndex()
+} = {}) {
+  state.setupMode = mode;
   state.editingFavoriteIndex = normalizeFavoriteIndex(targetIndex);
-  const config = state.favorites[state.editingFavoriteIndex] || state.savedConfig;
+  const config = mode === "favorite"
+    ? favoriteConfigAt(state.editingFavoriteIndex) || state.savedConfig
+    : state.savedConfig;
   if (config) {
     populateFormFromConfig(config);
   } else {
@@ -1045,13 +1093,35 @@ function openSetup(targetIndex = state.activeFavoriteIndex) {
   renderApp();
 }
 
+function openSearch() {
+  openSetup({
+    mode: "search"
+  });
+}
+
+function openFavoriteSettings(targetIndex = null) {
+  openSetup({
+    mode: "favorite",
+    targetIndex: targetIndex ?? (
+      Number.isInteger(state.activeFavoriteIndex)
+        ? state.activeFavoriteIndex
+        : firstAvailableFavoriteIndex()
+    )
+  });
+}
+
 function closeSetup() {
-  if (!state.savedConfig) {
-    return;
+  if (state.savedConfig) {
+    populateFormFromConfig(state.savedConfig);
+  } else {
+    clearFormSelections();
   }
 
-  populateFormFromConfig(state.savedConfig);
-  elements.favoriteSlot.value = String(state.activeFavoriteIndex);
+  if (Number.isInteger(state.activeFavoriteIndex)) {
+    elements.favoriteSlot.value = String(state.activeFavoriteIndex);
+  } else {
+    elements.favoriteSlot.value = String(firstAvailableFavoriteIndex());
+  }
   setFeedback("");
   state.isEditing = false;
   clearSuggestions(elements.originSuggestions);
@@ -1059,24 +1129,30 @@ function closeSetup() {
   renderApp();
 }
 
+function applyDisplayedConfig(config, favoriteIndex = null) {
+  state.savedConfig = {
+    from: copySelection(config.from),
+    to: copySelection(config.to)
+  };
+  state.activeFavoriteIndex = Number.isInteger(favoriteIndex)
+    ? normalizeFavoriteIndex(favoriteIndex)
+    : null;
+  persistActiveFavoriteIndex(state.activeFavoriteIndex);
+  persistConfig(state.savedConfig);
+  populateFormFromConfig(state.savedConfig);
+}
+
 async function activateFavorite(index) {
   const favoriteIndex = normalizeFavoriteIndex(index);
   const config = state.favorites[favoriteIndex];
 
   if (!config) {
-    openSetup(favoriteIndex);
+    openFavoriteSettings(favoriteIndex);
     return;
   }
 
-  state.activeFavoriteIndex = favoriteIndex;
   state.editingFavoriteIndex = favoriteIndex;
-  persistActiveFavoriteIndex(favoriteIndex);
-  state.savedConfig = {
-    from: copySelection(config.from),
-    to: copySelection(config.to)
-  };
-  persistConfig(state.savedConfig);
-  populateFormFromConfig(state.savedConfig);
+  applyDisplayedConfig(config, favoriteIndex);
   state.isEditing = false;
   state.currentPlan = null;
   resetVisibleResults();
@@ -1296,6 +1372,31 @@ function updateInfoSecondary(nextEvent) {
   return scheduleInfo;
 }
 
+function setupSubmitLabel() {
+  return state.setupMode === "search"
+    ? "Afficher ce trajet"
+    : "Enregistrer ce favori";
+}
+
+function setupTitle() {
+  if (state.setupMode === "search") {
+    return "Recherche de trajet";
+  }
+
+  return `Gerer ${favoriteLabel(state.editingFavoriteIndex)}`;
+}
+
+function setupCopyText() {
+  if (state.setupMode === "search") {
+    return "Choisis un depart et une arrivee pour afficher un trajet sans toucher a tes favoris.";
+  }
+
+  const selectedConfig = selectedSetupFavoriteConfig();
+  return selectedConfig
+    ? "Modifie ce favori, change son slot ou supprime-le depuis cet ecran."
+    : "Enregistre ici un nouveau favori. Les favoris vides ne s'affichent pas sur l'ecran principal.";
+}
+
 function renderApp() {
   state.currentNow = new Date();
   syncWakeState(state.currentNow);
@@ -1312,49 +1413,56 @@ function renderApp() {
     state.theme === "dark" ? "Activer le mode clair" : "Activer le mode sombre";
 
   const hasConfig = Boolean(state.savedConfig);
+  const hasFavorites = hasFavoriteConfigs(state.favorites);
   const awake = hasConfig && isAwake(state.currentNow);
   const showSleepScreen = hasConfig && !awake;
+  const showEmptyBoard = !hasConfig && !showSleepScreen;
   const nextEvent = computeNextEvent(state.currentNow);
-  const mode = !hasConfig ? "setup" : awake ? "awake" : "sleep";
+  const mode = showSleepScreen
+    ? "sleep"
+    : hasConfig
+      ? "awake"
+      : "empty";
 
   if (showSleepScreen && state.isEditing) {
     state.isEditing = false;
   }
 
   document.body.dataset.boardMode = mode;
-  document.body.dataset.setupOpen = !hasConfig || state.isEditing ? "true" : "false";
+  document.body.dataset.setupOpen = state.isEditing ? "true" : "false";
 
   elements.topbar.hidden = showSleepScreen;
-  elements.favoritesBar.hidden = showSleepScreen || !hasFavoriteConfigs(state.favorites);
-  elements.settingsButton.hidden = !hasConfig || showSleepScreen;
+  elements.searchButton.hidden = showSleepScreen;
+  elements.favoritesBar.hidden = showSleepScreen || !hasFavorites;
+  elements.settingsButton.hidden = showSleepScreen;
   elements.routeChip.hidden = !hasConfig || showSleepScreen;
-  elements.dashboard.hidden = !hasConfig;
+  elements.dashboard.hidden = false;
   elements.boardFeedback.hidden = true;
   elements.infoBubble.hidden = !hasConfig || showSleepScreen;
-  elements.setupShell.hidden = hasConfig ? (!state.isEditing || showSleepScreen) : false;
-  elements.setupShell.dataset.overlay = hasConfig ? "true" : "false";
-  elements.awakeView.hidden = !awake;
+  elements.setupShell.hidden = !state.isEditing || showSleepScreen;
+  elements.setupShell.dataset.overlay = hasConfig || hasFavorites ? "true" : "false";
+  elements.emptyView.hidden = !showEmptyBoard;
+  elements.awakeView.hidden = !awake || !hasConfig;
   elements.sleepView.hidden = !showSleepScreen;
   elements.wakeButton.disabled = state.refreshing;
+  elements.favoriteSlotGroup.hidden = state.setupMode === "search";
+  elements.submitButton.textContent = setupSubmitLabel();
+  elements.deleteFavoriteButton.hidden = state.setupMode !== "favorite" || !selectedSetupFavoriteConfig();
+
+  if (hasConfig) {
+    elements.routeChip.textContent = routeSummary(state.savedConfig);
+  }
+
+  elements.setupTitle.textContent = setupTitle();
+  elements.setupCopy.textContent = setupCopyText();
+  elements.closeSetupButton.hidden = !state.isEditing;
+  elements.cancelSetupButton.hidden = !state.isEditing;
 
   if (!hasConfig) {
-    elements.setupTitle.textContent = "Choisis le premier trajet a afficher";
-    elements.setupCopy.textContent =
-      "Enregistre-le dans un favori. Ensuite l'affiche se met a jour toute seule chaque minute entre 07:00 et 18:00, puis passe en veille.";
-    elements.closeSetupButton.hidden = true;
-    elements.cancelSetupButton.hidden = true;
     setInfoOpen(false);
     setBoardFeedback("");
     return;
   }
-
-  elements.routeChip.textContent = routeSummary(state.savedConfig);
-
-  elements.setupTitle.textContent = `Modifier ${favoriteLabel(state.editingFavoriteIndex)}`;
-  elements.setupCopy.textContent =
-    "Change le depart ou l'arrivee, puis reenregistre dans le favori voulu. Un clic sur un favori recharge aussitot son trajet.";
-  elements.closeSetupButton.hidden = !state.isEditing;
-  elements.cancelSetupButton.hidden = !state.isEditing;
 
   elements.infoPrimary.textContent = updateInfoPrimary();
   elements.infoSecondary.textContent = updateInfoSecondary(nextEvent);
@@ -1407,25 +1515,29 @@ async function saveRoute(event) {
 
   try {
     setFormLoading(true);
-    setFeedback("J'enregistre ce trajet...");
+    setFeedback(state.setupMode === "search" ? "Je cherche ce trajet..." : "J'enregistre ce favori...");
 
     const [from, to] = await Promise.all([
       originAutocomplete.ensureSelection(),
       destinationAutocomplete.ensureSelection()
     ]);
 
-    const favoriteIndex = normalizeFavoriteIndex(elements.favoriteSlot.value);
     const config = {
       from: copySelection(from),
       to: copySelection(to)
     };
-    state.favorites[favoriteIndex] = config;
-    state.activeFavoriteIndex = favoriteIndex;
-    state.editingFavoriteIndex = favoriteIndex;
-    state.savedConfig = config;
-    persistFavorites(state.favorites);
-    persistActiveFavoriteIndex(favoriteIndex);
-    persistConfig(state.savedConfig);
+
+    if (state.setupMode === "search") {
+      applyDisplayedConfig(config, null);
+      showToast("Trajet charge.", "success");
+    } else {
+      const favoriteIndex = normalizeFavoriteIndex(elements.favoriteSlot.value);
+      state.favorites[favoriteIndex] = config;
+      state.editingFavoriteIndex = favoriteIndex;
+      persistFavorites(state.favorites);
+      applyDisplayedConfig(config, favoriteIndex);
+      showToast(`${favoriteLabel(favoriteIndex)} enregistre.`, "success");
+    }
 
     state.isEditing = false;
     state.currentPlan = null;
@@ -1436,7 +1548,6 @@ async function saveRoute(event) {
     clearSuggestions(elements.toSuggestions);
     document.activeElement?.blur?.();
     renderApp();
-    showToast(`${favoriteLabel(favoriteIndex)} enregistre.`, "success");
     if (isAwake(new Date())) {
       await refreshPlan();
     }
@@ -1475,6 +1586,59 @@ async function refreshNow() {
 
   await refreshPlan();
   scheduleRefreshLoop();
+}
+
+async function deleteFavorite() {
+  const favoriteIndex = normalizeFavoriteIndex(elements.favoriteSlot.value);
+  const config = favoriteConfigAt(favoriteIndex);
+  if (!config) {
+    return;
+  }
+
+  state.favorites[favoriteIndex] = null;
+  persistFavorites(state.favorites);
+  showToast(`${favoriteLabel(favoriteIndex)} supprime.`, "success");
+
+  if (state.activeFavoriteIndex === favoriteIndex) {
+    const nextEntry = favoriteEntries(state.favorites)[0] || null;
+    state.currentPlan = null;
+    resetVisibleResults();
+    state.lastError = "";
+
+    if (nextEntry) {
+      applyDisplayedConfig(nextEntry.config, nextEntry.index);
+      state.editingFavoriteIndex = nextEntry.index;
+      elements.favoriteSlot.value = String(nextEntry.index);
+      state.isEditing = false;
+      renderApp();
+      if (isAwake(new Date())) {
+        await refreshPlan();
+      }
+      scheduleRefreshLoop();
+      return;
+    }
+
+    state.activeFavoriteIndex = null;
+    persistActiveFavoriteIndex(null);
+    state.savedConfig = null;
+    persistConfig(null);
+    clearFormSelections();
+    clearSuggestions(elements.originSuggestions);
+    clearSuggestions(elements.toSuggestions);
+    state.isEditing = false;
+    window.clearTimeout(state.refreshTimerId);
+    renderApp();
+    return;
+  }
+
+  state.editingFavoriteIndex = favoriteIndex;
+  if (state.savedConfig) {
+    populateFormFromConfig(state.savedConfig);
+  } else {
+    clearFormSelections();
+  }
+  setFeedback("");
+  renderApp();
 }
 
 const originAutocomplete = attachAutocomplete({
@@ -1554,6 +1718,22 @@ elements.favoritesBar.addEventListener("click", (event) => {
   activateFavorite(button.dataset.favoriteIndex);
 });
 
+elements.favoriteSlot.addEventListener("change", () => {
+  if (state.setupMode !== "favorite") {
+    return;
+  }
+
+  state.editingFavoriteIndex = normalizeFavoriteIndex(elements.favoriteSlot.value);
+  const config = selectedSetupFavoriteConfig() || state.savedConfig;
+  if (config) {
+    populateFormFromConfig(config);
+  } else {
+    clearFormSelections();
+  }
+  setFeedback("");
+  renderApp();
+});
+
 elements.moreResultsButton.addEventListener("click", () => {
   if (!state.currentPlan?.options?.length) {
     return;
@@ -1566,15 +1746,21 @@ elements.moreResultsButton.addEventListener("click", () => {
   displayResults(state.currentPlan);
 });
 
+elements.searchButton.addEventListener("click", openSearch);
 elements.themeToggleButton.addEventListener("click", () => {
   state.theme = state.theme === "dark" ? "light" : "dark";
   persistTheme(state.theme);
   renderApp();
 });
 
-elements.settingsButton.addEventListener("click", () => openSetup(state.activeFavoriteIndex));
+elements.settingsButton.addEventListener("click", () => openFavoriteSettings());
+elements.emptyAddFavoriteButton.addEventListener("click", () => openFavoriteSettings(0));
+elements.emptySearchButton.addEventListener("click", openSearch);
 elements.closeSetupButton.addEventListener("click", closeSetup);
 elements.cancelSetupButton.addEventListener("click", closeSetup);
+elements.deleteFavoriteButton.addEventListener("click", () => {
+  void deleteFavorite();
+});
 elements.wakeButton.addEventListener("click", wakeBoard);
 elements.infoButton.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -1597,22 +1783,28 @@ function initialize() {
   state.theme = loadStoredTheme() || preferredTheme();
   state.favorites = loadStoredFavorites();
   persistFavorites(state.favorites);
-  state.activeFavoriteIndex = loadActiveFavoriteIndex();
-  if (!state.favorites[state.activeFavoriteIndex] && hasFavoriteConfigs(state.favorites)) {
-    state.activeFavoriteIndex = state.favorites.findIndex((config) => Boolean(config)) || 0;
+  const storedActiveIndex = loadActiveFavoriteIndex();
+  if (hasFavoriteConfigs(state.favorites)) {
+    state.activeFavoriteIndex = state.favorites[storedActiveIndex]
+      ? storedActiveIndex
+      : (state.favorites.findIndex((config) => Boolean(config)) || 0);
+  } else {
+    state.activeFavoriteIndex = null;
   }
-  state.editingFavoriteIndex = state.activeFavoriteIndex;
-  state.savedConfig = state.favorites[state.activeFavoriteIndex]
+  state.editingFavoriteIndex = Number.isInteger(state.activeFavoriteIndex)
+    ? state.activeFavoriteIndex
+    : firstAvailableFavoriteIndex();
+  state.savedConfig = Number.isInteger(state.activeFavoriteIndex) && state.favorites[state.activeFavoriteIndex]
     ? {
         from: copySelection(state.favorites[state.activeFavoriteIndex].from),
         to: copySelection(state.favorites[state.activeFavoriteIndex].to)
       }
-    : null;
+    : loadLegacyConfig();
   state.manualWakeUntil = loadStoredWakeUntil();
   syncWakeState(new Date());
-  state.isEditing = !state.savedConfig;
+  state.isEditing = false;
   persistActiveFavoriteIndex(state.activeFavoriteIndex);
-  elements.favoriteSlot.value = String(state.activeFavoriteIndex);
+  elements.favoriteSlot.value = String(state.editingFavoriteIndex);
 
   if (state.savedConfig) {
     populateFormFromConfig(state.savedConfig);

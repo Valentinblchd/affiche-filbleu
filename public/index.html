@@ -24,6 +24,19 @@
         <div class="topbar-actions">
           <div id="route-chip" class="route-chip" hidden></div>
           <button
+            id="search-button"
+            class="icon-button"
+            type="button"
+            aria-label="Rechercher un trajet"
+            title="Rechercher un trajet"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10.5 4a6.5 6.5 0 1 0 4.02 11.61l4.44 4.45a1 1 0 0 0 1.42-1.42l-4.45-4.44A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+              />
+            </svg>
+          </button>
+          <button
             id="theme-toggle-button"
             class="ghost-button compact-button theme-toggle-button"
             type="button"
@@ -36,9 +49,8 @@
             id="settings-button"
             class="icon-button"
             type="button"
-            aria-label="Modifier le trajet"
-            title="Modifier le trajet"
-            hidden
+            aria-label="Gerer les favoris"
+            title="Gerer les favoris"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -61,6 +73,25 @@
 
       <section id="dashboard" class="dashboard" hidden>
         <p id="board-feedback" class="board-feedback" aria-live="polite"></p>
+
+        <section id="empty-view" class="empty-view" hidden>
+          <article class="empty-state-card">
+            <p class="section-kicker">Demarrage</p>
+            <h2>Aucun favori pour l'instant</h2>
+            <p class="empty-state-copy">
+              Ajoute un premier trajet dans Favori 1 pour lancer l'affiche.
+              Tu pourras ensuite en ajouter ou en supprimer d'autres depuis les reglages.
+            </p>
+            <div class="empty-state-actions">
+              <button id="empty-add-favorite-button" type="button" class="primary-button">
+                Ajouter Favori 1
+              </button>
+              <button id="empty-search-button" type="button" class="ghost-button">
+                Recherche rapide
+              </button>
+            </div>
+          </article>
+        </section>
 
         <section id="awake-view" class="board-section" hidden>
           <div class="board-grid">
@@ -156,7 +187,7 @@
           </p>
 
           <form id="planner-form" class="planner-form">
-            <div class="field-group">
+            <div id="favorite-slot-group" class="field-group">
               <label for="favorite-slot">Enregistrer dans</label>
               <select id="favorite-slot" name="favorite-slot" class="slot-select">
                 <option value="0">Favori 1</option>
@@ -212,6 +243,14 @@
             <div class="setup-actions">
               <button id="submit-button" type="submit" class="primary-button">
                 Enregistrer ce trajet
+              </button>
+              <button
+                id="delete-favorite-button"
+                type="button"
+                class="ghost-button danger-button"
+                hidden
+              >
+                Supprimer ce favori
               </button>
               <button
                 id="cancel-setup-button"

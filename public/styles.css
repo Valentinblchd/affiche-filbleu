@@ -253,6 +253,18 @@ body[data-theme="dark"] .setup-card {
     var(--card-strong);
 }
 
+body[data-theme="dark"] .empty-state-card {
+  background:
+    linear-gradient(180deg, rgba(13, 23, 35, 0.98), rgba(8, 15, 24, 0.94)),
+    var(--card-strong);
+}
+
+body[data-theme="dark"] .danger-button {
+  background: rgba(181, 61, 50, 0.16);
+  border-color: rgba(210, 87, 75, 0.28);
+  color: #ffcdc5;
+}
+
 body[data-theme="dark"] .field-group input,
 body[data-theme="dark"] .slot-select {
   background: rgba(6, 12, 19, 0.92);
@@ -462,6 +474,12 @@ body[data-theme="dark"] .update-modal-shell {
   padding: 0.9rem 1rem;
 }
 
+.danger-button {
+  border-color: rgba(181, 61, 50, 0.2);
+  background: rgba(181, 61, 50, 0.08);
+  color: var(--danger);
+}
+
 .compact-button {
   min-height: 46px;
   padding: 0.75rem 1rem;
@@ -506,11 +524,6 @@ body[data-theme="dark"] .update-modal-shell {
   box-shadow: 0 14px 28px rgba(15, 71, 103, 0.12);
 }
 
-.favorite-chip[data-empty="true"] {
-  border-style: dashed;
-  color: var(--muted);
-}
-
 .favorite-chip-index {
   color: var(--primary);
   font-size: 0.76rem;
@@ -527,6 +540,43 @@ body[data-theme="dark"] .update-modal-shell {
 .dashboard {
   display: grid;
   gap: 1.35rem;
+}
+
+.empty-view {
+  animation: fade-up 420ms ease both;
+}
+
+.empty-state-card {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1.4rem, 3vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(245, 250, 247, 0.92)),
+    var(--card-strong);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+}
+
+.empty-state-card h2 {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+  line-height: 1.02;
+}
+
+.empty-state-copy {
+  margin: 0;
+  max-width: 58ch;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .status-grid,
@@ -1316,6 +1366,11 @@ body[data-board-mode="sleep"] .sleep-copy {
   .favorite-chip {
     width: 100%;
     min-width: 0;
+  }
+
+  .empty-state-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .swap-slot,
