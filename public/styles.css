@@ -1057,9 +1057,11 @@ body[data-board-mode="sleep"] .sleep-copy {
   justify-items: center;
   align-items: start;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 1rem;
   background: rgba(14, 30, 47, 0.22);
   backdrop-filter: blur(14px);
+  -webkit-overflow-scrolling: touch;
 }
 
 .setup-card {
@@ -1457,14 +1459,21 @@ body[data-board-mode="sleep"] .sleep-copy {
 
   .setup-shell[data-overlay="true"] {
     align-items: end;
+    overflow-y: auto;
     padding: env(safe-area-inset-top) 0 0;
+    touch-action: pan-y;
   }
 
   .setup-shell[data-overlay="true"] .setup-card {
     width: 100%;
     min-height: min(100dvh, 100vh);
+    max-height: 100dvh;
+    overflow-y: auto;
     border-radius: 30px 30px 0 0;
     padding-bottom: calc(1.6rem + env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
   }
 
   body[data-setup-open="true"] {
