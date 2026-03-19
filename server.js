@@ -1231,6 +1231,8 @@ function disruptionClientPayload(disruption, lineMetaById = new Map()) {
   return {
     blockingTram,
     id: disruption.id,
+    impactedAreas: Array.isArray(disruption.impactedAreas) ? disruption.impactedAreas : [],
+    impactedLines: Array.isArray(disruption.impactedLines) ? disruption.impactedLines : [],
     impactedModes: modeKeys,
     isManifestation: disruption.isManifestation,
     lineCodes,
@@ -1249,6 +1251,7 @@ function buildTrafficPayload({
   lineIds,
   lineMetaById = new Map()
 }) {
+  const normalizedAreaIds = new Set(areaIds.filter(Boolean));
   const matchingDisruptions = filterDisruptions(disruptions, departureAt, lineIds, areaIds)
     .map((disruption) => disruptionClientPayload(disruption, lineMetaById));
   const manifestations = matchingDisruptions
@@ -1263,7 +1266,14 @@ function buildTrafficPayload({
     .filter((disruption) => !disruption.isManifestation)
     .slice(0, 8);
   const blockingTramDisruptions = matchingDisruptions
-    .filter((disruption) => disruption.blockingTram);
+    .filter((disruption) => disruption.blockingTram)
+    .filter((disruption) => {
+      if (disruption.impactedAreas.length === 0) {
+        return true;
+      }
+
+      return disruption.impactedAreas.some((areaId) => normalizedAreaIds.has(areaId));
+    });
 
   return {
     blockingTramAlertKey: blockingTramDisruptions
@@ -3255,7 +3265,7 @@ function normalizeLiveRows(rows, routeId) {
     .sort((left, right) => left.dateTime - right.dateTime);
 }
 
-function pairTimetables(fromRows, toRows, maxTravelMinutes) {
+function pairTimetables(fromRows, toRows, maxTravelMinutes, minimumTravelMinutes = 1) {
   const pairs = [];
   let destinationIndex = 0;
 
@@ -3274,7 +3284,7 @@ function pairTimetables(fromRows, toRows, maxTravelMinutes) {
         fromRow.dateTime
       );
 
-      if (travelMinutes < 1) {
+      if (travelMinutes < minimumTravelMinutes) {
         matchIndex += 1;
         continue;
       }
@@ -3297,8 +3307,8 @@ function pairTimetables(fromRows, toRows, maxTravelMinutes) {
   return pairs;
 }
 
-function buildEstimatedTerminalPairs(fromRows, sourceArea, targetArea, maxTravelMinutes) {
-  const estimatedTravelMinutes = Math.max(
+function estimateTramTravelMinutesBetweenAreas(sourceArea, targetArea) {
+  return Math.max(
     2,
     Math.round(
       distanceBetweenMeters(
@@ -3309,6 +3319,14 @@ function buildEstimatedTerminalPairs(fromRows, sourceArea, targetArea, maxTravel
       ) / estimatedTramMetersPerMinute
     )
   );
+}
+
+function minimumPlausibleTramTravelMinutes(sourceArea, targetArea) {
+  return Math.max(2, estimateTramTravelMinutesBetweenAreas(sourceArea, targetArea) - 4);
+}
+
+function buildEstimatedTerminalPairs(fromRows, sourceArea, targetArea, maxTravelMinutes) {
+  const estimatedTravelMinutes = estimateTramTravelMinutesBetweenAreas(sourceArea, targetArea);
 
   if (estimatedTravelMinutes > maxTravelMinutes) {
     return [];
@@ -3443,6 +3461,9 @@ async function buildLegOptions({
 }) {
   const routeMatcher = mode === "tram" ? isTramRoute : isBusRoute;
   const serviceDate = `${serviceDayKey(selectedDate)}T040000`;
+  const minimumTravelMinutes = mode === "tram"
+    ? minimumPlausibleTramTravelMinutes(sourceArea, targetArea)
+    : 1;
   const pairPromises = [];
 
   for (const sourceStop of sourceArea.stopPoints) {
@@ -3481,7 +3502,8 @@ async function buildLegOptions({
             let scheduledPairs = pairTimetables(
               normalizedFromRows,
               normalizedToRows,
-              maxTravelMinutes
+              maxTravelMinutes,
+              minimumTravelMinutes
             );
 
             // Some tram termini do not expose arrival timetable rows. Fall back to a
@@ -4131,8 +4153,10 @@ const isDirectExecution = process.argv[1]
 export {
   buildTrafficPayload,
   filterFastestLegsByLine,
+  minimumPlausibleTramTravelMinutes,
   optionDepartsSoonEnough,
-  optionHasCatchableLeadTime
+  optionHasCatchableLeadTime,
+  pairTimetables
 };
 
 if (isDirectExecution) {

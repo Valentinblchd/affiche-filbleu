@@ -1,4 +1,4 @@
-const CACHE_NAME = "affiche-filbleu-static-v1";
+const CACHE_NAME = "affiche-filbleu-static-v2";
 const STATIC_ASSETS = [
   "/",
   "/app.js",

@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 import {
   buildTrafficPayload,
   filterFastestLegsByLine,
-  optionHasCatchableLeadTime
+  minimumPlausibleTramTravelMinutes,
+  optionHasCatchableLeadTime,
+  pairTimetables
 } from "../server.js";
 
 const serverPath = fileURLToPath(new URL("../server.js", import.meta.url));
@@ -64,6 +66,39 @@ test("manifestations are filtered to the current route only", () => {
   assert.equal(payload.manifestationToday, true);
 });
 
+test("tram alerts stay quiet when the blocked section is outside the route areas", () => {
+  const departureAt = new Date("2026-03-19T10:00:00+01:00");
+  const disruptions = [
+    {
+      begin: "20260319T000000",
+      end: "20260319T235959",
+      id: "tram-other-section",
+      impactedAreas: ["stop_area:TTR:AC-OTHER"],
+      impactedLines: ["line:tram:a"],
+      isManifestation: false,
+      message: "Interruption sur une autre section du tram A",
+      periods: [{ begin: "20260319T000000", end: "20260319T235959" }],
+      reason: "Travaux",
+      severity: "blocking",
+      severityLabel: "Interruption",
+      title: "Tram A perturbe ailleurs"
+    }
+  ];
+
+  const payload = buildTrafficPayload({
+    areaIds: ["stop_area:TTR:AC-BEFFB", "stop_area:TTR:AC-GATO"],
+    departureAt,
+    disruptions,
+    lineIds: ["line:tram:a"],
+    lineMetaById: new Map([
+      ["line:tram:a", { lineCode: "A", lineId: "line:tram:a", mode: "tram" }]
+    ])
+  });
+
+  assert.equal(payload.disruptions.length, 1);
+  assert.equal(payload.blockingTramDetected, false);
+});
+
 test("uncatchable journeys are rejected when walking time exceeds the lead time", () => {
   const requestedDepartureAt = new Date("2026-03-19T10:00:00+01:00");
   const impossibleOption = {
@@ -114,6 +149,40 @@ test("estimated tram fallback legs never outrank measured travel times on the sa
   ]);
 
   assert.deepEqual(filteredLegs.map((leg) => leg.travelMinutes), [15]);
+});
+
+test("tram timetable pairing skips implausibly fast arrivals for distant stops", () => {
+  const sourceArea = {
+    lat: 47.422572,
+    lon: 0.682805
+  };
+  const targetArea = {
+    lat: 47.389065,
+    lon: 0.693369
+  };
+  const minimumTravelMinutes = minimumPlausibleTramTravelMinutes(sourceArea, targetArea);
+  const pairs = pairTimetables(
+    [
+      {
+        dateTime: new Date("2026-03-19T15:05:18+01:00"),
+        directions: []
+      }
+    ],
+    [
+      {
+        dateTime: new Date("2026-03-19T15:06:37+01:00"),
+        directions: []
+      },
+      {
+        dateTime: new Date("2026-03-19T15:20:37+01:00"),
+        directions: []
+      }
+    ],
+    90,
+    minimumTravelMinutes
+  );
+
+  assert.deepEqual(pairs.map((pair) => pair.travelMinutes), [15]);
 });
 
 async function startServerProcess(envOverrides = {}) {

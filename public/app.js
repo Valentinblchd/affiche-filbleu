@@ -14,10 +14,12 @@ const STORAGE_FAVORITES_KEY = "filbleu-display-favorites-v2";
 const STORAGE_ACTIVE_FAVORITE_KEY = "filbleu-display-active-favorite-v2";
 const STORAGE_PLAN_SNAPSHOT_KEY = "filbleu-display-plan-snapshots-v2";
 const STORAGE_PLAN_SNAPSHOT_LEGACY_KEY = "filbleu-display-plan-snapshot-v1";
+const STORAGE_CLIENT_BUILD_KEY = "filbleu-display-client-build-v1";
 const STORAGE_ACTIVE_HOURS_KEY = "filbleu-display-active-hours-v1";
 const STORAGE_AUDIO_ENABLED_KEY = "filbleu-display-audio-enabled-v1";
 const STORAGE_THEME_KEY = "filbleu-display-theme-v1";
 const STORAGE_WAKE_KEY = "filbleu-display-wake-until-v3";
+const CLIENT_BUILD_ID = "2026-03-19-fix2";
 const AUTO_REFRESH_MINUTES = 1;
 const MANUAL_WAKE_MINUTES = 15;
 const FAVORITE_SLOTS = 3;
@@ -580,6 +582,27 @@ function persistPlanSnapshot(config, plan) {
     window.localStorage.setItem(STORAGE_PLAN_SNAPSHOT_KEY, JSON.stringify(nextSnapshots));
   } catch {
     // Ignore local storage failures and keep the session plan in memory.
+  }
+}
+
+function clearStoredPlanSnapshots() {
+  try {
+    window.localStorage.removeItem(STORAGE_PLAN_SNAPSHOT_KEY);
+    window.localStorage.removeItem(STORAGE_PLAN_SNAPSHOT_LEGACY_KEY);
+  } catch {
+    // Ignore local storage failures and keep the session usable.
+  }
+}
+
+function syncClientBuildStorage() {
+  try {
+    const currentBuild = window.localStorage.getItem(STORAGE_CLIENT_BUILD_KEY);
+    if (currentBuild !== CLIENT_BUILD_ID) {
+      clearStoredPlanSnapshots();
+      window.localStorage.setItem(STORAGE_CLIENT_BUILD_KEY, CLIENT_BUILD_ID);
+    }
+  } catch {
+    // Ignore local storage failures and keep the session usable.
   }
 }
 
@@ -1715,6 +1738,10 @@ async function refreshPlan() {
   } catch (error) {
     state.lastError = error instanceof Error ? error.message : "Erreur inconnue.";
 
+    if (state.currentPlan) {
+      state.currentPlanSource = "cached";
+    }
+
     if (!state.currentPlan) {
       const fallbackSnapshot = loadStoredPlanSnapshot(state.savedConfig);
       if (fallbackSnapshot) {
@@ -2299,6 +2326,7 @@ function registerServiceWorker() {
 }
 
 function initialize() {
+  syncClientBuildStorage();
   state.activeHours = loadStoredActiveHours();
   state.audioEnabled = loadStoredAudioEnabled();
   state.theme = loadStoredTheme() || preferredTheme();
