@@ -1223,7 +1223,7 @@ function disruptionClientPayload(disruption, lineMetaById = new Map()) {
   const lineCodes = impactedLineMeta
     .map((meta) => String(meta.lineCode || "").trim())
     .filter(Boolean);
-  const blockingTram = disruption.severity === "blocking" && (
+  const blockingTram = !disruption.isManifestation && disruption.severity === "blocking" && (
     modeKeys.includes("tram") ||
     impactedLineMeta.some((meta) => isTramRoute(meta))
   );
@@ -3318,16 +3318,33 @@ function buildEstimatedTerminalPairs(fromRows, sourceArea, targetArea, maxTravel
     arrivalAt: addMinutes(fromRow.dateTime, estimatedTravelMinutes),
     departAt: fromRow.dateTime,
     directions: fromRow.directions,
+    estimatedFallback: true,
     travelMinutes: estimatedTravelMinutes
   }));
 }
 
 function filterFastestLegsByLine(legs, slackMinutes = 8) {
   const minTravelByLine = new Map();
+  const lineKeysWithMeasuredTrips = new Set();
 
   for (const leg of legs) {
     const key = leg.lineId || leg.routeId || leg.lineCode;
     if (!key) {
+      continue;
+    }
+
+    if (leg.travelSource !== "estimated_terminal") {
+      lineKeysWithMeasuredTrips.add(key);
+    }
+  }
+
+  for (const leg of legs) {
+    const key = leg.lineId || leg.routeId || leg.lineCode;
+    if (!key) {
+      continue;
+    }
+
+    if (lineKeysWithMeasuredTrips.has(key) && leg.travelSource === "estimated_terminal") {
       continue;
     }
 
@@ -3341,6 +3358,10 @@ function filterFastestLegsByLine(legs, slackMinutes = 8) {
     const key = leg.lineId || leg.routeId || leg.lineCode;
     if (!key || !minTravelByLine.has(key)) {
       return true;
+    }
+
+    if (lineKeysWithMeasuredTrips.has(key) && leg.travelSource === "estimated_terminal") {
+      return false;
     }
 
     return leg.travelMinutes <= minTravelByLine.get(key) + slackMinutes;
@@ -3516,7 +3537,8 @@ async function buildLegOptions({
         targetStop: pair.targetStop.name,
         targetStopId: pair.targetStop.id,
         targetStopLabel: pair.targetStop.label,
-        targetStopPoint: pair.targetStop
+        targetStopPoint: pair.targetStop,
+        travelSource: scheduledPair.estimatedFallback ? "estimated_terminal" : "timetable"
       })),
       normalizeLiveRows(pair.liveRows, pair.routeId),
       selectedDate
@@ -4108,6 +4130,7 @@ const isDirectExecution = process.argv[1]
 
 export {
   buildTrafficPayload,
+  filterFastestLegsByLine,
   optionDepartsSoonEnough,
   optionHasCatchableLeadTime
 };

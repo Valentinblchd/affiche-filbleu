@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildTrafficPayload,
+  filterFastestLegsByLine,
   optionHasCatchableLeadTime
 } from "../server.js";
 
@@ -59,6 +60,7 @@ test("manifestations are filtered to the current route only", () => {
 
   assert.deepEqual(payload.manifestations.map((item) => item.id), ["manifest-route"]);
   assert.equal(payload.disruptions.length, 0);
+  assert.equal(payload.blockingTramDetected, false);
   assert.equal(payload.manifestationToday, true);
 });
 
@@ -91,6 +93,27 @@ test("uncatchable journeys are rejected when walking time exceeds the lead time"
 
   assert.equal(optionHasCatchableLeadTime(impossibleOption, requestedDepartureAt), false);
   assert.equal(optionHasCatchableLeadTime(catchableOption, requestedDepartureAt), true);
+});
+
+test("estimated tram fallback legs never outrank measured travel times on the same line", () => {
+  const filteredLegs = filterFastestLegsByLine([
+    {
+      lineCode: "A",
+      lineId: "line:tram:a",
+      routeId: "route:tram:a:1",
+      travelMinutes: 2,
+      travelSource: "estimated_terminal"
+    },
+    {
+      lineCode: "A",
+      lineId: "line:tram:a",
+      routeId: "route:tram:a:1",
+      travelMinutes: 15,
+      travelSource: "timetable"
+    }
+  ]);
+
+  assert.deepEqual(filteredLegs.map((leg) => leg.travelMinutes), [15]);
 });
 
 async function startServerProcess(envOverrides = {}) {
