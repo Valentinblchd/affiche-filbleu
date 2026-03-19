@@ -45,6 +45,7 @@ CT_HOSTNAME=srv-filbleu APP_REPO_URL=https://github.com/Valentinblchd/affiche-fi
 This mode enables:
 
 - systemd service startup
+- a dedicated non-root service user
 - timezone fixed to `Europe/Paris`
 - automatic background update checks
 - automatic update apply without confirmation

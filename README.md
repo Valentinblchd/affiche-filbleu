@@ -6,7 +6,9 @@ Affichage grand ecran pour suivre un trajet Fil Bleu a Tours avec :
 - heure d'arrivee finale
 - bus, tram ou combinaison des deux
 - perturbations, retards et manifestations
+- filtre des trajets trop justes a attraper a pied
 - mode veille hors horaires
+- horaires actifs configurables
 - favoris
 - mise a jour auto de l'app en CT, sans confirmation manuelle
 
@@ -65,6 +67,7 @@ APP_REPO_URL=https://github.com/Valentinblchd/affiche-filbleu.git bash <(curl -f
 Par defaut, l'installation CT active maintenant :
 
 - `TZ=Europe/Paris` pour eviter les trajets decales d'une heure
+- un service systemd sous utilisateur dedie au lieu de `root`
 - la verification auto des nouvelles versions
 - l'application auto des mises a jour sans popup ni confirmation
 - le redemarrage du service apres mise a jour

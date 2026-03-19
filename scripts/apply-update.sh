@@ -6,6 +6,7 @@ APP_DIR="${APP_DIR:-/opt/affiche-filbleu}"
 APP_BRANCH="${APP_BRANCH:-}"
 SYSTEMD_SERVICE_NAME="${SYSTEMD_SERVICE_NAME:-affiche-filbleu}"
 UPDATE_LOG_FILE="${UPDATE_LOG_FILE:-$APP_DIR/update.log}"
+SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-/usr/bin/systemctl}"
 
 exec >>"$UPDATE_LOG_FILE" 2>&1
 
@@ -45,4 +46,4 @@ else
 fi
 
 sleep 1
-systemctl restart "$SYSTEMD_SERVICE_NAME"
+sudo -n "$SYSTEMCTL_BIN" restart "$SYSTEMD_SERVICE_NAME"

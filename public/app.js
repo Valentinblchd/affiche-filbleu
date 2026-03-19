@@ -1,13 +1,23 @@
+import {
+  DEFAULT_ACTIVE_HOURS,
+  activeHoursSummary,
+  formatCacheAge,
+  formatHourLabel,
+  getTramAlertAction,
+  normalizeActiveHours,
+  readPlanSnapshot,
+  upsertPlanSnapshotMap
+} from "./app-model.js";
+
 const STORAGE_CONFIG_KEY = "filbleu-display-config-v3";
 const STORAGE_FAVORITES_KEY = "filbleu-display-favorites-v2";
 const STORAGE_ACTIVE_FAVORITE_KEY = "filbleu-display-active-favorite-v2";
 const STORAGE_PLAN_SNAPSHOT_KEY = "filbleu-display-plan-snapshots-v2";
 const STORAGE_PLAN_SNAPSHOT_LEGACY_KEY = "filbleu-display-plan-snapshot-v1";
+const STORAGE_ACTIVE_HOURS_KEY = "filbleu-display-active-hours-v1";
 const STORAGE_AUDIO_ENABLED_KEY = "filbleu-display-audio-enabled-v1";
 const STORAGE_THEME_KEY = "filbleu-display-theme-v1";
 const STORAGE_WAKE_KEY = "filbleu-display-wake-until-v3";
-const ACTIVE_START_HOUR = 7;
-const ACTIVE_END_HOUR = 18;
 const AUTO_REFRESH_MINUTES = 1;
 const MANUAL_WAKE_MINUTES = 15;
 const FAVORITE_SLOTS = 3;
@@ -19,6 +29,9 @@ const PLAN_SNAPSHOT_MAX_AGE_MS = 20 * 60 * 1000;
 const TRAFFIC_PREVIEW_LINE_LENGTH = 240;
 
 const state = {
+  activeHours: {
+    ...DEFAULT_ACTIVE_HOURS
+  },
   audioEnabled: true,
   audioUnlocked: false,
   currentNow: new Date(),
@@ -51,6 +64,9 @@ const state = {
 };
 
 const elements = {
+  activeEndHour: document.querySelector("#active-end-hour"),
+  activeHoursCopy: document.querySelector("#active-hours-copy"),
+  activeStartHour: document.querySelector("#active-start-hour"),
   awakeView: document.querySelector("#awake-view"),
   audioToggleButton: document.querySelector("#audio-toggle-button"),
   audioToggleCopy: document.querySelector("#audio-toggle-copy"),
@@ -76,6 +92,7 @@ const elements = {
   planSourceBadge: document.querySelector("#plan-source-badge"),
   results: document.querySelector("#results"),
   routeChip: document.querySelector("#route-chip"),
+  saveSearchFavoriteButton: document.querySelector("#save-search-favorite-button"),
   searchButton: document.querySelector("#search-button"),
   settingsButton: document.querySelector("#settings-button"),
   setupCopy: document.querySelector("#setup-copy"),
@@ -178,19 +195,6 @@ function formatDateTime(date) {
     minute: "2-digit",
     month: "2-digit"
   });
-}
-
-function formatCacheAge(date, now = new Date()) {
-  if (!(date instanceof Date)) {
-    return "Donnees en cache";
-  }
-
-  const elapsedMinutes = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 60_000));
-  if (elapsedMinutes <= 0) {
-    return "Donnees en cache · il y a moins d'1 min";
-  }
-
-  return `Donnees en cache · il y a ${elapsedMinutes} min`;
 }
 
 function formatRelativeMinutes(value) {
@@ -506,22 +510,6 @@ function truncateSentence(value, maxLength = TRAFFIC_PREVIEW_LINE_LENGTH) {
   return `${preview}...`;
 }
 
-function normalizeStoredPlanSnapshot(snapshot) {
-  const savedAt = parseStoredDate(snapshot?.savedAt);
-  if (
-    !savedAt ||
-    Date.now() - savedAt.getTime() > PLAN_SNAPSHOT_MAX_AGE_MS ||
-    !snapshot?.plan?.options?.length
-  ) {
-    return null;
-  }
-
-  return {
-    plan: snapshot.plan,
-    savedAt
-  };
-}
-
 function loadStoredPlanSnapshotMap() {
   try {
     const raw = window.localStorage.getItem(STORAGE_PLAN_SNAPSHOT_KEY);
@@ -548,7 +536,14 @@ function loadLegacyPlanSnapshot(expectedKey) {
       return null;
     }
 
-    return normalizeStoredPlanSnapshot(parsed);
+    return readPlanSnapshot({
+      [expectedKey]: {
+        plan: parsed.plan,
+        savedAt: parsed.savedAt
+      }
+    }, expectedKey, {
+      maxAgeMs: PLAN_SNAPSHOT_MAX_AGE_MS
+    });
   } catch {
     return null;
   }
@@ -561,7 +556,9 @@ function loadStoredPlanSnapshot(config) {
   }
 
   const snapshots = loadStoredPlanSnapshotMap();
-  return normalizeStoredPlanSnapshot(snapshots[expectedKey]) || loadLegacyPlanSnapshot(expectedKey);
+  return readPlanSnapshot(snapshots, expectedKey, {
+    maxAgeMs: PLAN_SNAPSHOT_MAX_AGE_MS
+  }) || loadLegacyPlanSnapshot(expectedKey);
 }
 
 function persistPlanSnapshot(config, plan) {
@@ -571,29 +568,15 @@ function persistPlanSnapshot(config, plan) {
   }
 
   try {
-    const savedAt = new Date().toISOString();
-    const snapshots = loadStoredPlanSnapshotMap();
-    const nextSnapshots = {
-      [snapshotKey]: {
-        plan,
-        savedAt
+    const nextSnapshots = upsertPlanSnapshotMap(
+      loadStoredPlanSnapshotMap(),
+      snapshotKey,
+      plan,
+      new Date().toISOString(),
+      {
+        maxAgeMs: PLAN_SNAPSHOT_MAX_AGE_MS
       }
-    };
-
-    for (const [key, value] of Object.entries(snapshots)) {
-      if (key === snapshotKey) {
-        continue;
-      }
-
-      const normalized = normalizeStoredPlanSnapshot(value);
-      if (normalized) {
-        nextSnapshots[key] = {
-          plan: normalized.plan,
-          savedAt: normalized.savedAt.toISOString()
-        };
-      }
-    }
-
+    );
     window.localStorage.setItem(STORAGE_PLAN_SNAPSHOT_KEY, JSON.stringify(nextSnapshots));
   } catch {
     // Ignore local storage failures and keep the session plan in memory.
@@ -680,26 +663,19 @@ function playGentleAlertTone({
 }
 
 function maybePlayTramAlert(plan, source = state.currentPlanSource) {
-  const alertKey = String(plan?.traffic?.blockingTramAlertKey || "");
-  if (source !== "live") {
+  const alertAction = getTramAlertAction({
+    alertKey: plan?.traffic?.blockingTramAlertKey,
+    audioEnabled: state.audioEnabled,
+    audioUnlocked: state.audioUnlocked,
+    lastTramAlertKey: state.lastTramAlertKey,
+    source
+  });
+
+  state.lastTramAlertKey = alertAction.nextAlertKey;
+  if (!alertAction.shouldPlay) {
     return;
   }
 
-  if (!alertKey) {
-    state.lastTramAlertKey = "";
-    return;
-  }
-
-  if (!state.audioEnabled) {
-    state.lastTramAlertKey = alertKey;
-    return;
-  }
-
-  if (state.lastTramAlertKey === alertKey || !state.audioUnlocked) {
-    return;
-  }
-
-  state.lastTramAlertKey = alertKey;
   playGentleAlertTone({
     duration: 0.34,
     frequency: 740,
@@ -824,6 +800,32 @@ function persistTheme(theme) {
     window.localStorage.setItem(STORAGE_THEME_KEY, normalizeTheme(theme));
   } catch {
     // Ignore local storage failures and keep the session theme in memory.
+  }
+}
+
+function loadStoredActiveHours() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_ACTIVE_HOURS_KEY);
+    if (!raw) {
+      return {
+        ...DEFAULT_ACTIVE_HOURS
+      };
+    }
+
+    return normalizeActiveHours(JSON.parse(raw), DEFAULT_ACTIVE_HOURS);
+  } catch {
+    return {
+      ...DEFAULT_ACTIVE_HOURS
+    };
+  }
+}
+
+function persistActiveHours(value) {
+  try {
+    const normalized = normalizeActiveHours(value, DEFAULT_ACTIVE_HOURS);
+    window.localStorage.setItem(STORAGE_ACTIVE_HOURS_KEY, JSON.stringify(normalized));
+  } catch {
+    // Ignore local storage failures and keep the session state in memory.
   }
 }
 
@@ -1018,35 +1020,114 @@ function renderFavorites() {
     .join("");
 }
 
-function isWithinAutoHours(date) {
-  return date.getHours() >= ACTIVE_START_HOUR && date.getHours() < ACTIVE_END_HOUR;
+function renderHourOptions(select, selectedHour) {
+  if (!select) {
+    return;
+  }
+
+  if (select.options.length !== 24) {
+    select.innerHTML = Array.from({ length: 24 }, (_, hour) => {
+      return `<option value="${hour}">${escapeHtml(formatHourLabel(hour))}</option>`;
+    }).join("");
+  }
+
+  select.value = String(selectedHour);
+}
+
+function applyActiveHours(nextHours) {
+  const normalized = normalizeActiveHours(nextHours, state.activeHours);
+  if (
+    normalized.startHour === state.activeHours.startHour &&
+    normalized.endHour === state.activeHours.endHour
+  ) {
+    renderApp();
+    return;
+  }
+
+  const now = new Date();
+  const previousHours = { ...state.activeHours };
+  const wasAwake = Boolean(state.savedConfig) && isAwake(now, previousHours);
+
+  state.activeHours = normalized;
+  persistActiveHours(normalized);
+
+  const nowAwake = Boolean(state.savedConfig) && isAwake(now, normalized);
+  renderApp();
+  scheduleRefreshLoop();
+
+  if (!wasAwake && nowAwake && state.savedConfig) {
+    clearCurrentPlan();
+    resetVisibleResults();
+    state.lastError = "";
+    void refreshPlan();
+  }
+}
+
+function updateActiveHoursFromControls() {
+  if (!elements.activeStartHour || !elements.activeEndHour) {
+    return;
+  }
+
+  const startHour = Number.parseInt(elements.activeStartHour.value, 10);
+  const endHour = Number.parseInt(elements.activeEndHour.value, 10);
+  if (!Number.isInteger(startHour) || !Number.isInteger(endHour) || endHour <= startHour) {
+    showToast("Choisis une heure de fin apres l'heure de debut.", "error", 4000);
+    renderApp();
+    return;
+  }
+
+  applyActiveHours({
+    endHour,
+    startHour
+  });
+}
+
+function saveDisplayedSearchAsFavorite() {
+  if (!state.savedConfig || Number.isInteger(state.activeFavoriteIndex)) {
+    return;
+  }
+
+  const nextIndex = firstAvailableFavoriteIndex();
+  const hasFreeSlot = !favoriteConfigAt(nextIndex);
+  if (hasFreeSlot) {
+    openFavoriteForm(nextIndex);
+    showToast(`${favoriteLabel(nextIndex)} pre-rempli avec la recherche affichee.`, "success", 4000);
+    return;
+  }
+
+  openFavoriteSettings();
+  showToast("Choisis le favori a remplacer pour enregistrer cette recherche.", "success", 5000);
+}
+
+function isWithinAutoHours(date, activeHours = state.activeHours) {
+  return date.getHours() >= activeHours.startHour && date.getHours() < activeHours.endHour;
 }
 
 function isManualWakeActive(date) {
   return state.manualWakeUntil instanceof Date && state.manualWakeUntil > date;
 }
 
-function isAwake(date) {
-  return isWithinAutoHours(date) || isManualWakeActive(date);
+function isAwake(date, activeHours = state.activeHours) {
+  return isWithinAutoHours(date, activeHours) || isManualWakeActive(date);
 }
 
-function getNextAutoWakeAt(date) {
+function getNextAutoWakeAt(date, activeHours = state.activeHours) {
   const nextWake = new Date(date);
   nextWake.setSeconds(0, 0);
 
-  if (nextWake.getHours() < ACTIVE_START_HOUR) {
-    nextWake.setHours(ACTIVE_START_HOUR, 0, 0, 0);
+  if (nextWake.getHours() < activeHours.startHour) {
+    nextWake.setHours(activeHours.startHour, 0, 0, 0);
     return nextWake;
   }
 
   nextWake.setDate(nextWake.getDate() + 1);
-  nextWake.setHours(ACTIVE_START_HOUR, 0, 0, 0);
+  nextWake.setHours(activeHours.startHour, 0, 0, 0);
   return nextWake;
 }
 
-function getTodaySleepAt(date) {
+function getTodaySleepAt(date, activeHours = state.activeHours) {
   const sleepAt = new Date(date);
-  sleepAt.setHours(ACTIVE_END_HOUR, 0, 0, 0);
+  sleepAt.setHours(activeHours.endHour, 0, 0, 0);
   return sleepAt;
 }
 
@@ -1074,8 +1155,8 @@ function computeNextEvent(now = new Date()) {
     return null;
   }
 
-  if (isWithinAutoHours(now)) {
-    const sleepAt = getTodaySleepAt(now);
+  if (isWithinAutoHours(now, state.activeHours)) {
+    const sleepAt = getTodaySleepAt(now, state.activeHours);
     const nextRefreshAt = getNextRefreshBoundary(now);
     if (nextRefreshAt < sleepAt) {
       return {
@@ -1106,7 +1187,7 @@ function computeNextEvent(now = new Date()) {
   }
 
   return {
-    at: getNextAutoWakeAt(now),
+    at: getNextAutoWakeAt(now, state.activeHours),
     type: "wake"
   };
 }
@@ -1729,14 +1810,16 @@ function setupTitle() {
 }
 
 function setupCopyText() {
+  const hoursSummary = activeHoursSummary(state.activeHours).replace(" -> ", " a ");
+
   if (state.setupMode === "search") {
     return "Choisis un depart et une arrivee pour afficher un trajet sans toucher a tes favoris.";
   }
 
   if (state.setupView === "menu") {
     return state.savedConfig
-      ? "Selectionne un favori a modifier ou cree le prochain disponible. Le nouveau favori reprendra le trajet affiche."
-      : "Selectionne un favori a modifier ou cree le prochain favori disponible.";
+      ? `Selectionne un favori a modifier ou cree le prochain disponible. Le nouveau favori reprendra le trajet affiche. L'affiche s'actualise automatiquement de ${hoursSummary}.`
+      : `Selectionne un favori a modifier ou cree le prochain favori disponible. L'affiche s'actualise automatiquement de ${hoursSummary}.`;
   }
 
   const selectedConfig = selectedSetupFavoriteConfig();
@@ -1766,6 +1849,14 @@ function renderApp() {
   elements.themeToggleButton.title =
     state.theme === "dark" ? "Activer le mode clair" : "Activer le mode sombre";
   elements.planSourceBadge.hidden = true;
+  elements.saveSearchFavoriteButton.hidden = true;
+
+  renderHourOptions(elements.activeStartHour, state.activeHours.startHour);
+  renderHourOptions(elements.activeEndHour, state.activeHours.endHour);
+  if (elements.activeHoursCopy) {
+    elements.activeHoursCopy.textContent =
+      `Actualisation automatique tous les jours de ${activeHoursSummary(state.activeHours).replace(" -> ", " a ")}.`;
+  }
 
   if (elements.audioToggleButton) {
     elements.audioToggleButton.textContent = state.audioEnabled ? "Son actif" : "Mode muet";
@@ -1828,6 +1919,7 @@ function renderApp() {
     state.setupMode !== "favorite" ||
     state.setupView !== "form" ||
     !selectedSetupFavoriteConfig();
+  elements.saveSearchFavoriteButton.hidden = !displayingSearch || showSleepScreen;
 
   if (hasConfig) {
     elements.routeChip.textContent = displayingSearch
@@ -1849,7 +1941,7 @@ function renderApp() {
     return;
   }
   elements.sleepMessage.textContent =
-    "Hors horaire automatique, l'affiche se met en veille entre 18:00 et 07:00.";
+    `Hors horaire automatique, l'affiche se met en veille entre ${formatHourLabel(state.activeHours.endHour)} et ${formatHourLabel(state.activeHours.startHour)}.`;
 
   if (showSleepScreen) {
     return;
@@ -2158,12 +2250,15 @@ elements.themeToggleButton.addEventListener("click", () => {
 elements.settingsButton.addEventListener("click", () => openFavoriteSettings());
 elements.emptyAddFavoriteButton.addEventListener("click", () => openFavoriteForm(firstAvailableFavoriteIndex()));
 elements.emptySearchButton.addEventListener("click", openSearch);
+elements.saveSearchFavoriteButton.addEventListener("click", saveDisplayedSearchAsFavorite);
 elements.closeSetupButton.addEventListener("click", closeSetup);
 elements.cancelSetupButton.addEventListener("click", closeSetup);
 elements.deleteFavoriteButton.addEventListener("click", () => {
   void deleteFavorite();
 });
 elements.wakeButton.addEventListener("click", wakeBoard);
+elements.activeStartHour?.addEventListener("change", updateActiveHoursFromControls);
+elements.activeEndHour?.addEventListener("change", updateActiveHoursFromControls);
 
 document.addEventListener("pointerdown", () => {
   void unlockAlertAudio().then(() => {
@@ -2204,6 +2299,7 @@ function registerServiceWorker() {
 }
 
 function initialize() {
+  state.activeHours = loadStoredActiveHours();
   state.audioEnabled = loadStoredAudioEnabled();
   state.theme = loadStoredTheme() || preferredTheme();
   state.favorites = loadStoredFavorites();

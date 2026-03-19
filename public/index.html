@@ -74,7 +74,17 @@
       <section id="dashboard" class="dashboard" hidden>
         <div class="dashboard-meta">
           <p id="board-feedback" class="board-feedback" aria-live="polite"></p>
-          <span id="plan-source-badge" class="summary-chip plan-source-badge" hidden></span>
+          <div class="dashboard-meta-actions">
+            <button
+              id="save-search-favorite-button"
+              class="ghost-button compact-button"
+              type="button"
+              hidden
+            >
+              Enregistrer en favori
+            </button>
+            <span id="plan-source-badge" class="summary-chip plan-source-badge" hidden></span>
+          </div>
         </div>
 
         <section id="empty-view" class="empty-view" hidden>
@@ -209,6 +219,24 @@
               >
                 Son actif
               </button>
+            </section>
+            <section class="settings-panel settings-panel-stack">
+              <div>
+                <p class="favorite-manager-copy">Horaires actifs</p>
+                <p id="active-hours-copy" class="field-hint">
+                  Actualisation automatique tous les jours de 07:00 a 18:00.
+                </p>
+              </div>
+              <div class="settings-hours">
+                <label class="settings-inline-field" for="active-start-hour">
+                  Debut
+                  <select id="active-start-hour" class="slot-select"></select>
+                </label>
+                <label class="settings-inline-field" for="active-end-hour">
+                  Fin
+                  <select id="active-end-hour" class="slot-select"></select>
+                </label>
+              </div>
             </section>
           </section>
 

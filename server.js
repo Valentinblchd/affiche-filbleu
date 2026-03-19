@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { access, constants as fsConstants, readFile } from "node:fs/promises";
 import { dirname, extname, join, normalize } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 process.env.TZ ||= "Europe/Paris";
 
@@ -50,6 +50,7 @@ const transferCandidateAreaLimit = 14;
 const timetableCacheTtlMs = 6 * 60 * 60 * 1000;
 const updateStatusCacheTtlMs = 30 * 1000;
 const staleJourneyGraceMinutes = 2;
+const catchableJourneyWalkBufferMinutes = 1;
 const appTimeZone = "Europe/Paris";
 const toursCenter = {
   lat: 47.3941,
@@ -478,6 +479,62 @@ function optionDepartsSoonEnough(option, requestedDepartureAt, graceMinutes = st
   }
 
   return departureMs >= requestedDepartureAt.getTime() - graceMinutes * 60 * 1000;
+}
+
+function optionAccessMinutes(option) {
+  if (Array.isArray(option?.sections) && option.sections.length > 0) {
+    let total = 0;
+
+    for (const section of option.sections) {
+      if (section.kind === "public_transport") {
+        break;
+      }
+
+      if (section.kind === "walking") {
+        total += Number(section.durationMinutes) || 0;
+      }
+    }
+
+    return Math.max(0, total);
+  }
+
+  return Math.max(0, Number(option?.origin?.walkMinutes) || 0);
+}
+
+function optionFirstTransitDepartureAt(option) {
+  if (Array.isArray(option?.sections) && option.sections.length > 0) {
+    const firstTransitSection = option.sections.find((section) => section.kind === "public_transport");
+    const firstTransitDate = new Date(firstTransitSection?.departureAt || "");
+    if (!Number.isNaN(firstTransitDate.getTime())) {
+      return firstTransitDate;
+    }
+  }
+
+  const fallbackTransitDate = new Date(option?.bus?.departAt || option?.tram?.departAt || "");
+  if (!Number.isNaN(fallbackTransitDate.getTime())) {
+    return fallbackTransitDate;
+  }
+
+  return null;
+}
+
+function optionHasCatchableLeadTime(
+  option,
+  requestedDepartureAt,
+  walkBufferMinutes = catchableJourneyWalkBufferMinutes
+) {
+  const firstTransitDepartureAt = optionFirstTransitDepartureAt(option);
+  if (!firstTransitDepartureAt) {
+    return true;
+  }
+
+  const leadMinutes = differenceInMinutes(firstTransitDepartureAt, requestedDepartureAt);
+  const accessMinutes = optionAccessMinutes(option);
+  const requiredLeadMinutes = accessMinutes > 0
+    ? accessMinutes + walkBufferMinutes
+    : 0;
+
+  return leadMinutes >= requiredLeadMinutes;
 }
 
 function sameServiceDay(left, right) {
@@ -3096,7 +3153,8 @@ async function buildDirectPlan({
       ))
     )
   )
-    .filter((option) => optionDepartsSoonEnough(option, departureAt));
+    .filter((option) => optionDepartsSoonEnough(option, departureAt))
+    .filter((option) => optionHasCatchableLeadTime(option, departureAt));
 
   const options = sortJourneyOptions(normalizedOptions).slice(0, 6);
 
@@ -3716,7 +3774,9 @@ async function buildPlan({
     throw new Error("Aucune combinaison bus + tram n'a ete trouvee pour cet horaire.");
   }
 
-  const freshOptions = options.filter((option) => optionDepartsSoonEnough(option, departureAt));
+  const freshOptions = options
+    .filter((option) => optionDepartsSoonEnough(option, departureAt))
+    .filter((option) => optionHasCatchableLeadTime(option, departureAt));
   if (freshOptions.length === 0) {
     throw new Error("Aucune combinaison bus + tram exploitable n'a ete trouvee pour cet horaire.");
   }
@@ -4042,7 +4102,19 @@ async function startServer() {
   scheduleAutomaticUpdates();
 }
 
-startServer().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+const isDirectExecution = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+export {
+  buildTrafficPayload,
+  optionDepartsSoonEnough,
+  optionHasCatchableLeadTime
+};
+
+if (isDirectExecution) {
+  startServer().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

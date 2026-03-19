@@ -705,6 +705,13 @@ body[data-theme="dark"] .traffic-expand-button {
   margin-bottom: 0.35rem;
 }
 
+.dashboard-meta-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
 .feedback {
   margin: 0;
   color: var(--muted);
@@ -1084,6 +1091,10 @@ body[data-board-mode="sleep"] .sleep-copy {
   background: rgba(255, 255, 255, 0.56);
 }
 
+.settings-panel-stack {
+  align-items: stretch;
+}
+
 .favorite-manager-copy {
   margin: 0;
   color: var(--muted);
@@ -1094,6 +1105,19 @@ body[data-board-mode="sleep"] .sleep-copy {
   min-width: 140px;
   justify-content: center;
   white-space: nowrap;
+}
+
+.settings-hours {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.settings-inline-field {
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
 .favorite-manager-list {
@@ -1424,6 +1448,11 @@ body[data-board-mode="sleep"] .sleep-copy {
 
   .settings-toggle-button {
     width: 100%;
+  }
+
+  .settings-hours {
+    width: 100%;
+    grid-template-columns: 1fr;
   }
 
   .setup-shell[data-overlay="true"] {

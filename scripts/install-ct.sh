@@ -17,8 +17,10 @@ AUTO_UPDATE_ENABLED="${AUTO_UPDATE_ENABLED:-1}"
 AUTO_UPDATE_INTERVAL_MS="${AUTO_UPDATE_INTERVAL_MS:-300000}"
 CT_HOSTNAME="${CT_HOSTNAME:-}"
 SERVICE_NAME="${SERVICE_NAME:-affiche-filbleu}"
+SERVICE_USER="${SERVICE_USER:-affiche-filbleu}"
 ENV_FILE="/etc/default/$SERVICE_NAME"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
+SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
 
 if [ -z "$APP_REPO_URL" ]; then
   echo "Renseigne APP_REPO_URL, par exemple :"
@@ -29,7 +31,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y ca-certificates curl git gnupg
+apt-get install -y ca-certificates curl git gnupg sudo
 
 if [ -n "$CT_HOSTNAME" ]; then
   printf '%s\n' "$CT_HOSTNAME" >/etc/hostname
@@ -47,10 +49,15 @@ fi
 
 apt-get install -y nodejs
 
+if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+  adduser --system --group --home /nonexistent --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+fi
+
 mkdir -p "$(dirname "$APP_DIR")"
 
 if [ -d "$APP_DIR/.git" ]; then
   cd "$APP_DIR"
+  git config --global --add safe.directory "$APP_DIR"
   git fetch origin "$APP_BRANCH" --quiet
   git checkout "$APP_BRANCH"
   git pull --ff-only origin "$APP_BRANCH"
@@ -69,11 +76,17 @@ else
   npm install --omit=dev
 fi
 
+mkdir -p "$APP_DIR/.npm-cache"
+touch "$APP_DIR/update.log"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR"
+
 cat >"$ENV_FILE" <<EOF
 HOST=$APP_HOST
 PORT=$APP_PORT
 TZ=$APP_TZ
 APP_DIR=$APP_DIR
+HOME=$APP_DIR
+NPM_CONFIG_CACHE=$APP_DIR/.npm-cache
 APP_BRANCH=$APP_BRANCH
 SELF_UPDATE_ENABLED=1
 AUTO_UPDATE_ENABLED=$AUTO_UPDATE_ENABLED
@@ -83,6 +96,11 @@ UPDATE_CHECK_SCRIPT=$APP_DIR/scripts/check-update.sh
 UPDATE_APPLY_SCRIPT=$APP_DIR/scripts/apply-update.sh
 UPDATE_LOG_FILE=$APP_DIR/update.log
 EOF
+
+cat >"$SUDOERS_FILE" <<EOF
+$SERVICE_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart $SERVICE_NAME
+EOF
+chmod 0440 "$SUDOERS_FILE"
 
 cat >"$SERVICE_FILE" <<EOF
 [Unit]
@@ -97,7 +115,8 @@ WorkingDirectory=$APP_DIR
 ExecStart=/usr/bin/node $APP_DIR/server.js
 Restart=always
 RestartSec=3
-User=root
+User=$SERVICE_USER
+Group=$SERVICE_USER
 
 [Install]
 WantedBy=multi-user.target
