@@ -50,6 +50,21 @@ This mode enables:
 - automatic update apply without confirmation
 - automatic restart after update
 
+## Optional update-status protection
+
+If the app is exposed on a LAN or behind a public reverse proxy, you can also protect `GET /api/update-status`:
+
+- `UPDATE_STATUS_REQUIRE_AUTH=1`
+- `UPDATE_API_TOKEN=<strong-secret>`
+
+With this enabled, both `/api/update-status` and `/api/update-apply` only accept:
+
+- loopback requests
+- `Authorization: Bearer <token>`
+- `X-Update-Token: <token>`
+
+If you protect `/api/update-status`, browser-based auto-reload needs the same token through your reverse proxy or a simple auth layer in front of the app.
+
 ## Ready image
 
 A ready-to-load Docker image is available in this project:

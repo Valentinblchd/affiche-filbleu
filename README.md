@@ -69,6 +69,22 @@ Par defaut, l'installation CT active maintenant :
 - l'application auto des mises a jour sans popup ni confirmation
 - le redemarrage du service apres mise a jour
 
+Si l'app reste exposee sur le LAN, tu peux aussi proteger `GET /api/update-status` avec :
+
+- `UPDATE_STATUS_REQUIRE_AUTH=1`
+- `UPDATE_API_TOKEN=un-secret-solide`
+
+Dans ce mode, `/api/update-status` et `/api/update-apply` n'acceptent plus que :
+
+- les appels locaux
+- les appels avec `Authorization: Bearer ...`
+- ou `X-Update-Token`
+
+Point important :
+
+- si tu proteges `/api/update-status`, le navigateur ne pourra plus verifier les nouvelles versions sans ce jeton
+- dans ce cas, mets soit une auth simple devant ton reverse proxy, soit un header injecte par le proxy sur cette route
+
 ## Cache actuel
 
 Oui, il y a deja un cache cote serveur pour eviter de surcharger Fil Bleu inutilement.

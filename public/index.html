@@ -10,7 +10,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <title>Affiche Fil Bleu</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -72,7 +72,10 @@
       <section id="favorites-bar" class="favorites-bar" hidden aria-label="Favoris trajets"></section>
 
       <section id="dashboard" class="dashboard" hidden>
-        <p id="board-feedback" class="board-feedback" aria-live="polite"></p>
+        <div class="dashboard-meta">
+          <p id="board-feedback" class="board-feedback" aria-live="polite"></p>
+          <span id="plan-source-badge" class="summary-chip plan-source-badge" hidden></span>
+        </div>
 
         <section id="empty-view" class="empty-view" hidden>
           <article class="empty-state-card">
@@ -191,6 +194,22 @@
               Choisis un favori a modifier ou cree le prochain favori disponible.
             </p>
             <div id="favorite-manager-list" class="favorite-manager-list"></div>
+            <section class="settings-panel">
+              <div>
+                <p class="favorite-manager-copy">Alerte sonore tram</p>
+                <p id="audio-toggle-copy" class="field-hint">
+                  Un son doux peut se jouer si une interruption tram bloque le trajet affiche.
+                </p>
+              </div>
+              <button
+                id="audio-toggle-button"
+                class="ghost-button compact-button settings-toggle-button"
+                type="button"
+                aria-pressed="true"
+              >
+                Son actif
+              </button>
+            </section>
           </section>
 
           <form id="planner-form" class="planner-form">

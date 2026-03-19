@@ -215,6 +215,11 @@ body[data-theme="dark"] .route-pill {
   color: var(--primary-deep);
 }
 
+body[data-theme="dark"] .plan-source-badge {
+  background: rgba(244, 194, 106, 0.18);
+  color: #ffe7b7;
+}
+
 body[data-theme="dark"] .result-details-toggle {
   background: rgba(132, 208, 232, 0.08);
   border-color: rgba(132, 208, 232, 0.12);
@@ -244,6 +249,11 @@ body[data-theme="dark"] .traffic-head {
 body[data-theme="dark"] .traffic-item-tram-alert {
   border-color: rgba(210, 87, 75, 0.28);
   box-shadow: inset 0 0 0 1px rgba(210, 87, 75, 0.08);
+}
+
+body[data-theme="dark"] .settings-panel {
+  background: rgba(8, 15, 24, 0.72);
+  border-color: rgba(132, 208, 232, 0.12);
 }
 
 body[data-theme="dark"] .sleep-illustration {
@@ -687,6 +697,14 @@ body[data-theme="dark"] .traffic-expand-button {
   color: var(--muted);
 }
 
+.dashboard-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-bottom: 0.35rem;
+}
+
 .feedback {
   margin: 0;
   color: var(--muted);
@@ -695,6 +713,11 @@ body[data-theme="dark"] .traffic-expand-button {
 .board-feedback[data-tone="error"],
 .feedback[data-tone="error"] {
   color: var(--danger);
+}
+
+.plan-source-badge {
+  background: rgba(175, 91, 23, 0.12);
+  color: var(--warning);
 }
 
 .section-head {
@@ -1050,10 +1073,27 @@ body[data-board-mode="sleep"] .sleep-copy {
   gap: 0.9rem;
 }
 
+.settings-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(15, 71, 103, 0.12);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
 .favorite-manager-copy {
   margin: 0;
   color: var(--muted);
   line-height: 1.6;
+}
+
+.settings-toggle-button {
+  min-width: 140px;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .favorite-manager-list {
@@ -1375,6 +1415,15 @@ body[data-board-mode="sleep"] .sleep-copy {
 
   .favorite-manager-list {
     grid-template-columns: 1fr;
+  }
+
+  .settings-panel {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .settings-toggle-button {
+    width: 100%;
   }
 
   .setup-shell[data-overlay="true"] {

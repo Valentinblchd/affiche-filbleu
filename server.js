@@ -23,6 +23,7 @@ const autoUpdateIntervalMs = Math.max(
 const updateCheckScriptPath = process.env.UPDATE_CHECK_SCRIPT || join(scriptsDir, "check-update.sh");
 const updateApplyScriptPath = process.env.UPDATE_APPLY_SCRIPT || join(scriptsDir, "apply-update.sh");
 const updateApiToken = String(process.env.UPDATE_API_TOKEN || "").trim();
+const updateStatusAuthRequired = process.env.UPDATE_STATUS_REQUIRE_AUTH === "1";
 
 const upstreamBaseUrl = "https://filbleu.latitude-cartagene.com";
 const itineraryParams = "departure,bus,tram,walking";
@@ -80,6 +81,7 @@ const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
   ".svg": "image/svg+xml",
   ".webmanifest": "application/manifest+json; charset=utf-8"
 };
@@ -151,6 +153,10 @@ function hasValidUpdateToken(request) {
 
 function canApplyUpdateFromRequest(request) {
   return isLoopbackRequest(request) || hasValidUpdateToken(request);
+}
+
+function canReadUpdateStatusFromRequest(request) {
+  return !updateStatusAuthRequired || canApplyUpdateFromRequest(request);
 }
 
 async function isExecutableFile(filePath) {
@@ -1187,22 +1193,18 @@ function buildTrafficPayload({
   lineMetaById = new Map()
 }) {
   const matchingDisruptions = filterDisruptions(disruptions, departureAt, lineIds, areaIds)
-    .slice(0, 8)
     .map((disruption) => disruptionClientPayload(disruption, lineMetaById));
-  const manifestations = disruptions
-    .filter((disruption) => {
-      const periods = disruption.periods.length > 0
-        ? disruption.periods
-        : [{ begin: disruption.begin, end: disruption.end }];
-      return disruption.isManifestation &&
-        periods.some((period) => compactPeriodOverlapsDate(period, departureAt));
-    })
+  const manifestations = matchingDisruptions
+    .filter((disruption) => disruption.isManifestation)
     .slice(0, 6)
     .map((disruption) => ({
       id: disruption.id,
       message: disruption.message,
       title: disruption.title
     }));
+  const routeDisruptions = matchingDisruptions
+    .filter((disruption) => !disruption.isManifestation)
+    .slice(0, 8);
   const blockingTramDisruptions = matchingDisruptions
     .filter((disruption) => disruption.blockingTram);
 
@@ -1212,7 +1214,7 @@ function buildTrafficPayload({
       .sort()
       .join("|"),
     blockingTramDetected: blockingTramDisruptions.length > 0,
-    disruptions: matchingDisruptions,
+    disruptions: routeDisruptions,
     manifestationToday: manifestations.length > 0,
     manifestations
   };
@@ -3857,6 +3859,13 @@ const server = createServer(async (request, response) => {
     }
 
     if (requestUrl.pathname === "/api/update-status") {
+      if (!canReadUpdateStatusFromRequest(request)) {
+        jsonResponse(response, 403, {
+          error: "Le statut de mise a jour est protege sur cette installation."
+        });
+        return;
+      }
+
       const force = requestUrl.searchParams.get("force") === "1";
       const status = await getUpdateStatus({ force });
       jsonResponse(response, 200, status);

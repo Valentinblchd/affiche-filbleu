@@ -1,7 +1,9 @@
 const STORAGE_CONFIG_KEY = "filbleu-display-config-v3";
 const STORAGE_FAVORITES_KEY = "filbleu-display-favorites-v2";
 const STORAGE_ACTIVE_FAVORITE_KEY = "filbleu-display-active-favorite-v2";
-const STORAGE_PLAN_SNAPSHOT_KEY = "filbleu-display-plan-snapshot-v1";
+const STORAGE_PLAN_SNAPSHOT_KEY = "filbleu-display-plan-snapshots-v2";
+const STORAGE_PLAN_SNAPSHOT_LEGACY_KEY = "filbleu-display-plan-snapshot-v1";
+const STORAGE_AUDIO_ENABLED_KEY = "filbleu-display-audio-enabled-v1";
 const STORAGE_THEME_KEY = "filbleu-display-theme-v1";
 const STORAGE_WAKE_KEY = "filbleu-display-wake-until-v3";
 const ACTIVE_START_HOUR = 7;
@@ -17,6 +19,7 @@ const PLAN_SNAPSHOT_MAX_AGE_MS = 20 * 60 * 1000;
 const TRAFFIC_PREVIEW_LINE_LENGTH = 240;
 
 const state = {
+  audioEnabled: true,
   audioUnlocked: false,
   currentNow: new Date(),
   currentPlan: null,
@@ -49,6 +52,8 @@ const state = {
 
 const elements = {
   awakeView: document.querySelector("#awake-view"),
+  audioToggleButton: document.querySelector("#audio-toggle-button"),
+  audioToggleCopy: document.querySelector("#audio-toggle-copy"),
   boardFeedback: document.querySelector("#board-feedback"),
   cancelSetupButton: document.querySelector("#cancel-setup-button"),
   closeSetupButton: document.querySelector("#close-setup-button"),
@@ -68,6 +73,7 @@ const elements = {
   moreResultsButton: document.querySelector("#more-results-button"),
   originInput: document.querySelector("#from-input"),
   originSuggestions: document.querySelector("#from-suggestions"),
+  planSourceBadge: document.querySelector("#plan-source-badge"),
   results: document.querySelector("#results"),
   routeChip: document.querySelector("#route-chip"),
   searchButton: document.querySelector("#search-button"),
@@ -172,6 +178,19 @@ function formatDateTime(date) {
     minute: "2-digit",
     month: "2-digit"
   });
+}
+
+function formatCacheAge(date, now = new Date()) {
+  if (!(date instanceof Date)) {
+    return "Donnees en cache";
+  }
+
+  const elapsedMinutes = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 60_000));
+  if (elapsedMinutes <= 0) {
+    return "Donnees en cache · il y a moins d'1 min";
+  }
+
+  return `Donnees en cache · il y a ${elapsedMinutes} min`;
 }
 
 function formatRelativeMinutes(value) {
@@ -487,33 +506,62 @@ function truncateSentence(value, maxLength = TRAFFIC_PREVIEW_LINE_LENGTH) {
   return `${preview}...`;
 }
 
+function normalizeStoredPlanSnapshot(snapshot) {
+  const savedAt = parseStoredDate(snapshot?.savedAt);
+  if (
+    !savedAt ||
+    Date.now() - savedAt.getTime() > PLAN_SNAPSHOT_MAX_AGE_MS ||
+    !snapshot?.plan?.options?.length
+  ) {
+    return null;
+  }
+
+  return {
+    plan: snapshot.plan,
+    savedAt
+  };
+}
+
+function loadStoredPlanSnapshotMap() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_PLAN_SNAPSHOT_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadLegacyPlanSnapshot(expectedKey) {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_PLAN_SNAPSHOT_LEGACY_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (parsed?.configKey !== expectedKey) {
+      return null;
+    }
+
+    return normalizeStoredPlanSnapshot(parsed);
+  } catch {
+    return null;
+  }
+}
+
 function loadStoredPlanSnapshot(config) {
   const expectedKey = configKey(config);
   if (!expectedKey) {
     return null;
   }
 
-  try {
-    const raw = window.localStorage.getItem(STORAGE_PLAN_SNAPSHOT_KEY);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw);
-    const savedAt = parseStoredDate(parsed?.savedAt);
-    if (
-      parsed?.configKey !== expectedKey ||
-      !savedAt ||
-      Date.now() - savedAt.getTime() > PLAN_SNAPSHOT_MAX_AGE_MS ||
-      !parsed?.plan?.options?.length
-    ) {
-      return null;
-    }
-
-    return parsed.plan;
-  } catch {
-    return null;
-  }
+  const snapshots = loadStoredPlanSnapshotMap();
+  return normalizeStoredPlanSnapshot(snapshots[expectedKey]) || loadLegacyPlanSnapshot(expectedKey);
 }
 
 function persistPlanSnapshot(config, plan) {
@@ -523,11 +571,30 @@ function persistPlanSnapshot(config, plan) {
   }
 
   try {
-    window.localStorage.setItem(STORAGE_PLAN_SNAPSHOT_KEY, JSON.stringify({
-      configKey: snapshotKey,
-      plan,
-      savedAt: new Date().toISOString()
-    }));
+    const savedAt = new Date().toISOString();
+    const snapshots = loadStoredPlanSnapshotMap();
+    const nextSnapshots = {
+      [snapshotKey]: {
+        plan,
+        savedAt
+      }
+    };
+
+    for (const [key, value] of Object.entries(snapshots)) {
+      if (key === snapshotKey) {
+        continue;
+      }
+
+      const normalized = normalizeStoredPlanSnapshot(value);
+      if (normalized) {
+        nextSnapshots[key] = {
+          plan: normalized.plan,
+          savedAt: normalized.savedAt.toISOString()
+        };
+      }
+    }
+
+    window.localStorage.setItem(STORAGE_PLAN_SNAPSHOT_KEY, JSON.stringify(nextSnapshots));
   } catch {
     // Ignore local storage failures and keep the session plan in memory.
   }
@@ -620,6 +687,11 @@ function maybePlayTramAlert(plan, source = state.currentPlanSource) {
 
   if (!alertKey) {
     state.lastTramAlertKey = "";
+    return;
+  }
+
+  if (!state.audioEnabled) {
+    state.lastTramAlertKey = alertKey;
     return;
   }
 
@@ -752,6 +824,27 @@ function persistTheme(theme) {
     window.localStorage.setItem(STORAGE_THEME_KEY, normalizeTheme(theme));
   } catch {
     // Ignore local storage failures and keep the session theme in memory.
+  }
+}
+
+function loadStoredAudioEnabled() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_AUDIO_ENABLED_KEY);
+    if (raw === null || raw === "") {
+      return true;
+    }
+
+    return raw !== "0" && raw !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function persistAudioEnabled(value) {
+  try {
+    window.localStorage.setItem(STORAGE_AUDIO_ENABLED_KEY, value ? "1" : "0");
+  } catch {
+    // Ignore local storage failures and keep the session state in memory.
   }
 }
 
@@ -1449,7 +1542,9 @@ async function requestUpdateStatus({ force = false } = {}) {
   const payload = await response.json();
 
   if (!response.ok) {
-    throw new Error(payload.error || "Verification de mise a jour indisponible.");
+    const error = new Error(payload.error || "Verification de mise a jour indisponible.");
+    error.statusCode = response.status;
+    throw error;
   }
 
   return payload;
@@ -1473,8 +1568,11 @@ async function refreshUpdateStatus({ force = false } = {}) {
       window.location.reload();
       return;
     }
-  } catch {
+  } catch (error) {
     state.updateStatus = null;
+    if (error?.statusCode === 403) {
+      window.clearInterval(state.updateStatusTimerId);
+    }
   } finally {
     renderApp();
   }
@@ -1537,14 +1635,13 @@ async function refreshPlan() {
     state.lastError = error instanceof Error ? error.message : "Erreur inconnue.";
 
     if (!state.currentPlan) {
-      const fallbackPlan = loadStoredPlanSnapshot(state.savedConfig);
-      if (fallbackPlan) {
-        state.currentPlan = fallbackPlan;
+      const fallbackSnapshot = loadStoredPlanSnapshot(state.savedConfig);
+      if (fallbackSnapshot) {
+        state.currentPlan = fallbackSnapshot.plan;
         state.currentPlanSource = "cached";
-        state.lastRefreshAt =
-          parseStoredDate(fallbackPlan.request?.departureAt || fallbackPlan.departureAt) || state.lastRefreshAt;
-        displayResults(fallbackPlan);
-        displayTraffic(fallbackPlan);
+        state.lastRefreshAt = fallbackSnapshot.savedAt;
+        displayResults(fallbackSnapshot.plan);
+        displayTraffic(fallbackSnapshot.plan);
       } else {
         showResultsPlaceholder(state.lastError);
         showTrafficPlaceholder("Aucune alerte reseau exploitable pour cette recherche.");
@@ -1668,6 +1765,17 @@ function renderApp() {
   );
   elements.themeToggleButton.title =
     state.theme === "dark" ? "Activer le mode clair" : "Activer le mode sombre";
+  elements.planSourceBadge.hidden = true;
+
+  if (elements.audioToggleButton) {
+    elements.audioToggleButton.textContent = state.audioEnabled ? "Son actif" : "Mode muet";
+    elements.audioToggleButton.setAttribute("aria-pressed", state.audioEnabled ? "true" : "false");
+  }
+  if (elements.audioToggleCopy) {
+    elements.audioToggleCopy.textContent = state.audioEnabled
+      ? "Un son doux peut se jouer si une interruption tram bloque le trajet affiche."
+      : "Mode muet actif. Aucun signal sonore ne sera joue pour les alertes tram.";
+  }
 
   const hasConfig = Boolean(state.savedConfig);
   const hasFavorites = hasFavoriteConfigs(state.favorites);
@@ -1747,15 +1855,21 @@ function renderApp() {
     return;
   }
 
+  if (state.currentPlanSource === "cached") {
+    elements.planSourceBadge.textContent = formatCacheAge(state.lastRefreshAt, state.currentNow);
+    elements.planSourceBadge.hidden = false;
+  }
+
   if (state.refreshing) {
     setBoardFeedback("Actualisation en cours...");
     elements.boardFeedback.hidden = false;
   } else if (state.currentPlanSource === "cached") {
-    const message = state.lastError
-      ? `Derniere erreur: ${state.lastError}. Affichage des derniers trajets connus.`
-      : "Affichage des derniers trajets connus.";
-    setBoardFeedback(message, state.lastError ? "error" : "muted");
-    elements.boardFeedback.hidden = false;
+    if (state.lastError) {
+      setBoardFeedback(`Derniere erreur: ${state.lastError}`, "error");
+      elements.boardFeedback.hidden = false;
+    } else {
+      setBoardFeedback("");
+    }
   } else if (state.lastError) {
     setBoardFeedback(`Derniere erreur: ${state.lastError}`, "error");
     elements.boardFeedback.hidden = false;
@@ -2065,6 +2179,18 @@ document.addEventListener("keydown", (event) => {
   });
 });
 
+elements.audioToggleButton?.addEventListener("click", () => {
+  state.audioEnabled = !state.audioEnabled;
+  persistAudioEnabled(state.audioEnabled);
+  state.lastTramAlertKey = String(state.currentPlan?.traffic?.blockingTramAlertKey || "");
+  renderApp();
+  showToast(
+    state.audioEnabled ? "Alerte sonore activee." : "Alerte sonore coupee.",
+    "success",
+    3000
+  );
+});
+
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
@@ -2078,6 +2204,7 @@ function registerServiceWorker() {
 }
 
 function initialize() {
+  state.audioEnabled = loadStoredAudioEnabled();
   state.theme = loadStoredTheme() || preferredTheme();
   state.favorites = loadStoredFavorites();
   persistFavorites(state.favorites);
@@ -2111,12 +2238,11 @@ function initialize() {
 
   if (state.savedConfig) {
     populateFormFromConfig(state.savedConfig);
-    const cachedPlan = loadStoredPlanSnapshot(state.savedConfig);
-    if (cachedPlan) {
-      state.currentPlan = cachedPlan;
+    const cachedSnapshot = loadStoredPlanSnapshot(state.savedConfig);
+    if (cachedSnapshot) {
+      state.currentPlan = cachedSnapshot.plan;
       state.currentPlanSource = "cached";
-      state.lastRefreshAt =
-        parseStoredDate(cachedPlan.request?.departureAt || cachedPlan.departureAt) || null;
+      state.lastRefreshAt = cachedSnapshot.savedAt;
     }
   } else {
     clearFormSelections();
